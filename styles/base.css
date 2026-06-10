@@ -1,0 +1,14 @@
+    :root {
+      --bg-deep:#050505;--bg:#0a0a0a;--surface:#141414;--surface-raised:#1e1e1e;
+      --border:rgba(255,255,255,.08);--border-strong:rgba(255,255,255,.16);
+      --text:#f3f4f6;--text-muted:#9ca3af;
+      --team1:#3b82f6;--team1-soft:#60a5fa;--team1-dim:rgba(59,130,246,.35);
+      --accent-red:#ef4444;--accent-red-soft:#f87171;
+      --accent-green:#22c55e;--accent-green-soft:#4ade80;
+      --accent-yellow:#fbbf24;--accent-muted:#6b7280;--accent-highlight:#e5e7eb;
+      --accent-purple:#a78bfa;--shadow:0 8px 32px rgba(0,0,0,.55);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;overflow:hidden}
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg-deep);color:var(--text);margin:0;padding:0;text-align:center;position:relative}
+    body::after{content:"";position:fixed;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(5,5,5,.9) 0%,rgba(10,10,10,.82) 45%,rgba(5,5,5,.94) 100%),radial-gradient(ellipse 80% 50% at 50% 0%,rgba(255,255,255,.04),transparent 55%),radial-gradient(ellipse 60% 40% at 50% 100%,rgba(0,0,0,.35),transparent 50%);pointer-events:none}
