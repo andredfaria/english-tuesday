@@ -1,0 +1,28 @@
+/** @typedef {{word: string, ptAnswer: string, sentence: string, difficulty: "easy"|"medium"|"hard"}} DescribeItem */
+
+export const describeChallenges=[
+  {word:"Elephant",ptAnswer:"Elefante",sentence:"Create a sentence in English with 'elephant'!",difficulty:"easy"},
+  {word:"Umbrella",ptAnswer:"Guarda-chuva",sentence:"Create a sentence in English with 'umbrella'!",difficulty:"easy"},
+  {word:"Library",ptAnswer:"Biblioteca",sentence:"Create a sentence in English with 'library'!",difficulty:"medium"},
+  {word:"Refrigerator",ptAnswer:"Geladeira",sentence:"Create a sentence in English with 'refrigerator'!",difficulty:"medium"},
+  {word:"Vacation",ptAnswer:"Férias",sentence:"Create a sentence in English with 'vacation'!",difficulty:"easy"},
+  {word:"Jealous",ptAnswer:"Ciumento / Com inveja",sentence:"Create a sentence in English with 'jealous'!",difficulty:"medium"},
+  {word:"Exhausted",ptAnswer:"Exausto",sentence:"Create a sentence in English with 'exhausted'!",difficulty:"medium"},
+  {word:"Delicious",ptAnswer:"Delicioso",sentence:"Create a sentence in English with 'delicious'!",difficulty:"easy"},
+  {word:"Neighbor",ptAnswer:"Vizinho",sentence:"Create a sentence in English with 'neighbor'!",difficulty:"medium"},
+  {word:"Midnight",ptAnswer:"Meia-noite",sentence:"Create a sentence in English with 'midnight'!",difficulty:"medium"},
+  {word:"Adventure",ptAnswer:"Aventura",sentence:"Create a sentence in English with 'adventure'!",difficulty:"easy"},
+  {word:"Grateful",ptAnswer:"Grato / Agradecido",sentence:"Create a sentence in English with 'grateful'!",difficulty:"hard"},
+  {word:"Sunrise",ptAnswer:"Nascer do sol / Amanhecer",sentence:"Create a sentence in English with 'sunrise'!",difficulty:"medium"},
+  {word:"Curious",ptAnswer:"Curioso",sentence:"Create a sentence in English with 'curious'!",difficulty:"medium"},
+  {word:"Stubborn",ptAnswer:"Teimoso",sentence:"Create a sentence in English with 'stubborn'!",difficulty:"hard"},
+  {word:"Earthquake",ptAnswer:"Terremoto",sentence:"Create a sentence in English with 'earthquake'!",difficulty:"hard"},
+  {word:"Silence",ptAnswer:"Silêncio",sentence:"Create a sentence in English with 'silence'!",difficulty:"medium"},
+  {word:"Emergency",ptAnswer:"Emergência",sentence:"Create a sentence in English with 'emergency'!",difficulty:"hard"},
+  {word:"Confident",ptAnswer:"Confiante",sentence:"Create a sentence in English with 'confident'!",difficulty:"medium"},
+  {word:"Appointment",ptAnswer:"Consulta / Compromisso",sentence:"Create a sentence in English with 'appointment'!",difficulty:"hard"},
+  {word:"Homesick",ptAnswer:"Com saudade de casa",sentence:"Create a sentence in English with 'homesick'!",difficulty:"hard"},
+  {word:"Champion",ptAnswer:"Campeão",sentence:"Create a sentence in English with 'champion'!",difficulty:"medium"},
+  {word:"Volunteer",ptAnswer:"Voluntário",sentence:"Create a sentence in English with 'volunteer'!",difficulty:"hard"},
+  {word:"Incredible",ptAnswer:"Incrível",sentence:"Create a sentence in English with 'incredible'!",difficulty:"medium"},
+];
