@@ -9,35 +9,15 @@ import { pickFromPool, resetUsedPools } from "./core/pool.js";
 import { gameState } from "./core/state.js";
 import { addScore, BONUS_POINTS } from "./core/scoring.js";
 import { getDifficultyMeta, applyDifficulty } from "./core/difficulty.js";
+import { advanceTeamTurn, nextAnsweringPlayer } from "./core/turns.js";
+import { trackCorrect, resetStreak, acceptDoubleBet, declineDoubleBet, settleDouble } from "./core/double.js";
 
 // ═══════════════════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════════════════
-let team1name="Blue Team", team2name="Red Team";
-let activeTeam=1, turnTeam=1;
-let currentMode=0, isRandom=true;
-let soundEnabled=true, confettiEnabled=true;
-let roundLocked=false;
-let playerTurnIndex={1:0,2:0};
-let currentAnsweringPlayer="";
-
-// ── Double-or-Nothing ──
-// doubleActive  = true when the next challenge is a double round
-// doubleTeam    = which team accepted the bet (1 or 2)
-// doubleWaiting = true when banner is shown, waiting for teacher choice
-let consecutiveCorrect={1:0,2:0};
-let doubleActive=false;
-let doubleTeam=0;
-let doubleWaiting=false;
-
-// ── Bonus sub-challenge ──
-let bonusRevealed=false;
-let bonusAnswer="";
-
 const TIMER_RING_R=42;
 const TIMER_RING_LEN=2*Math.PI*TIMER_RING_R;
 let timeLeft=60, timerInterval=null;
-let currentAnswer="";
 let audioCtx=null;
 
 // ═══════════════════════════════════════════════════════
@@ -45,7 +25,7 @@ let audioCtx=null;
 // ═══════════════════════════════════════════════════════
 function getAudioCtx(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();return audioCtx}
 function playBeep(freq,dur,type,vol){
-  if(!soundEnabled)return;
+  if(!gameState.soundEnabled)return;
   try{
     const ctx=getAudioCtx();
     if(ctx.state==="suspended")ctx.resume();
@@ -72,7 +52,7 @@ function playSound(kind){
 //  CONFETTI
 // ═══════════════════════════════════════════════════════
 function launchConfetti(){
-  if(!confettiEnabled)return;
+  if(!gameState.confettiEnabled)return;
   const canvas=document.getElementById("confettiCanvas");
   const ctx=canvas.getContext("2d");
   canvas.width=window.innerWidth;canvas.height=window.innerHeight;
@@ -119,7 +99,7 @@ function updateNewChallengeButton(){
   const panel=document.getElementById("challengePanel");
   const isIdle=panel&&panel.classList.contains("challenge-panel--idle");
   // Also block if waiting for double decision
-  const canNew=(isIdle||roundLocked)&&!doubleWaiting;
+  const canNew=(isIdle||gameState.roundLocked)&&!gameState.doubleWaiting;
   btn.disabled=!canNew;
   btn.title=canNew?"":"Score the current round first";
 }
@@ -128,23 +108,20 @@ function setAwaitingScore(v){
   document.getElementById("awaitingScoreNote").style.display=v?"block":"none";
 }
 function setRoundLocked(v){
-  roundLocked=v;
+  gameState.roundLocked=v;
   document.getElementById("challengePanel").classList.toggle("challenge-locked",v);
   if(v)setAwaitingScore(false);
   updateNewChallengeButton();
 }
 function getTeamPlayerNames(t){return Array.from(document.getElementById("team"+t+"list").querySelectorAll("li")).map(li=>li.dataset.name);}
-function assignAnsweringPlayer(t){
-  const names=getTeamPlayerNames(t);
-  const pEl=document.getElementById("pickedPlayer"),hEl=document.getElementById("pickedPlayerHint");
-  if(!names.length){currentAnsweringPlayer="";pEl.textContent="";hEl.textContent="";return;}
-  const idx=playerTurnIndex[t]%names.length;
-  currentAnsweringPlayer=names[idx];
-  playerTurnIndex[t]=(idx+1)%names.length;
-  pEl.textContent="▶ "+currentAnsweringPlayer+" answers";
-  hEl.textContent="Correct = +"+gameState.roundPointsFull+" · With help = +"+gameState.roundPointsHelp;
+function assignAnsweringPlayer(t) {
+  const name = nextAnsweringPlayer(t, getTeamPlayerNames(t));
+  const pEl = document.getElementById("pickedPlayer"), hEl = document.getElementById("pickedPlayerHint");
+  if (!name) { pEl.textContent = ""; hEl.textContent = ""; return; }
+  pEl.textContent = "▶ " + name + " answers";
+  hEl.textContent = "Correct = +" + gameState.roundPointsFull + " · With help = +" + gameState.roundPointsHelp;
 }
-function clearAnsweringPlayerDisplay(){currentAnsweringPlayer="";document.getElementById("pickedPlayer").textContent="";document.getElementById("pickedPlayerHint").textContent="";}
+function clearAnsweringPlayerDisplay(){gameState.currentAnsweringPlayer="";document.getElementById("pickedPlayer").textContent="";document.getElementById("pickedPlayerHint").textContent="";}
 function updateTimerRing(){
   const elapsed=gameState.timerDuration-timeLeft;
   const progress=Math.min(1,Math.max(0,elapsed/gameState.timerDuration));
@@ -169,12 +146,11 @@ function resetTimer(){pauseTimer();timeLeft=gameState.timerDuration;document.get
 //  SCOREBOARD / TEAMS
 // ═══════════════════════════════════════════════════════
 function updateTeamTurnDisplay(){
-  const name=activeTeam===1?team1name:team2name;
+  const name=gameState.activeTeam===1?gameState.team1name:gameState.team2name;
   const el=document.getElementById("teamTurn");
   el.textContent=name+" — your turn";
-  el.className="team-turn team-turn--"+(activeTeam===1?"blue":"red");
+  el.className="team-turn team-turn--"+(gameState.activeTeam===1?"blue":"red");
 }
-function advanceTeamTurn(){activeTeam=activeTeam===1?2:1;}
 function updateScoreRosters(){
   [1,2].forEach(t=>{
     const names=Array.from(document.getElementById("team"+t+"list").querySelectorAll("li")).map(li=>li.dataset.name);
@@ -182,21 +158,21 @@ function updateScoreRosters(){
   });
 }
 function updateScoreboardUI(){
-  document.getElementById("scoreTeam1Name").textContent=team1name;
-  document.getElementById("scoreTeam2Name").textContent=team2name;
+  document.getElementById("scoreTeam1Name").textContent=gameState.team1name;
+  document.getElementById("scoreTeam2Name").textContent=gameState.team2name;
   updateScoreRosters();
   document.getElementById("scorePanel1").classList.toggle("leading",gameState.score1>gameState.score2);
   document.getElementById("scorePanel2").classList.toggle("leading",gameState.score2>gameState.score1);
 }
 function updateModeButtons(){
-  document.querySelectorAll(".mode-btn").forEach((btn,i)=>btn.classList.toggle("active",!isRandom&&currentMode===i));
-  document.getElementById("randomModeBtn").classList.toggle("active",isRandom);
+  document.querySelectorAll(".mode-btn").forEach((btn,i)=>btn.classList.toggle("active",!gameState.isRandom&&gameState.currentMode===i));
+  document.getElementById("randomModeBtn").classList.toggle("active",gameState.isRandom);
 }
 function openSettingsModal(){
-  document.getElementById("team1input").value=team1name;
-  document.getElementById("team2input").value=team2name;
-  document.getElementById("modalTeam1Label").textContent=team1name;
-  document.getElementById("modalTeam2Label").textContent=team2name;
+  document.getElementById("team1input").value=gameState.team1name;
+  document.getElementById("team2input").value=gameState.team2name;
+  document.getElementById("modalTeam1Label").textContent=gameState.team1name;
+  document.getElementById("modalTeam2Label").textContent=gameState.team2name;
   updateModeButtons();
   document.getElementById("settingsModal").classList.add("open");
   document.getElementById("settingsModal").setAttribute("aria-hidden","false");
@@ -210,10 +186,10 @@ function closeSettingsModal(){
 }
 function updatePlayerListEmpty(t){document.getElementById("team"+t+"empty").style.display=document.getElementById("team"+t+"list").children.length?"none":"block";}
 function setTeamNames(){
-  team1name=document.getElementById("team1input").value.trim()||"Blue Team";
-  team2name=document.getElementById("team2input").value.trim()||"Red Team";
-  document.getElementById("modalTeam1Label").textContent=team1name;
-  document.getElementById("modalTeam2Label").textContent=team2name;
+  gameState.team1name=document.getElementById("team1input").value.trim()||"Blue Team";
+  gameState.team2name=document.getElementById("team2input").value.trim()||"Red Team";
+  document.getElementById("modalTeam1Label").textContent=gameState.team1name;
+  document.getElementById("modalTeam2Label").textContent=gameState.team2name;
   updateScoreboardUI();updateTeamTurnDisplay();addToLog("Team names updated.");
 }
 function addPlayer(t){
@@ -241,7 +217,7 @@ document.addEventListener("keydown",e=>{
     e.preventDefault();
     const panel=document.getElementById("challengePanel");
     const isIdle=panel&&panel.classList.contains("challenge-panel--idle");
-    if((!isIdle&&!roundLocked)||doubleWaiting)return;
+    if((!isIdle&&!gameState.roundLocked)||gameState.doubleWaiting)return;
     newChallenge();
   }
   else if(key==="1"){e.preventDefault();markCorrect("full");}
@@ -262,8 +238,10 @@ function addPoint(team,amount){
   updateScoreboardUI();
 }
 function resetScores(){
-  gameState.score1 = 0; gameState.score2 = 0;playerTurnIndex={1:0,2:0};consecutiveCorrect={1:0,2:0};
-  doubleActive=false;doubleTeam=0;doubleWaiting=false;
+  gameState.score1 = 0; gameState.score2 = 0;
+  gameState.playerTurnIndex = { 1: 0, 2: 0 };
+  gameState.consecutiveCorrect = { 1: 0, 2: 0 };
+  gameState.doubleActive=false;gameState.doubleTeam=0;gameState.doubleWaiting=false;
   document.getElementById("score1").textContent=0;
   document.getElementById("score2").textContent=0;
   document.getElementById("scorePanel1").classList.remove("pulse","leading");
@@ -271,8 +249,8 @@ function resetScores(){
   document.getElementById("doubleBanner").style.display="none";
   addToLog("Score reset.");
 }
-function setMode(m){isRandom=false;currentMode=m;updateModeButtons();}
-function randomMode(){isRandom=true;updateModeButtons();}
+function setMode(m){gameState.isRandom=false;gameState.currentMode=m;updateModeButtons();}
+function randomMode(){gameState.isRandom=true;updateModeButtons();}
 
 // ═══════════════════════════════════════════════════════
 //  DOUBLE OR NOTHING
@@ -289,16 +267,11 @@ function randomMode(){isRandom=true;updateModeButtons();}
 //     Errado: perde os pts da rodada (subtrai)
 // ═══════════════════════════════════════════════════════
 function checkDoubleOrNothing(team){
-  consecutiveCorrect[team]=(consecutiveCorrect[team]||0)+1;
-  if(consecutiveCorrect[team]>=3){
-    consecutiveCorrect[team]=0;
-    doubleTeam=team;
-    showDoubleBanner(team);
-  }
+  if(trackCorrect(team)) showDoubleBanner(team);
 }
 
 function showDoubleBanner(team){
-  const name=team===1?team1name:team2name;
+  const name=team===1?gameState.team1name:gameState.team2name;
   const pts=gameState.roundPointsFull; // approximate next round value
   document.getElementById("doubleBannerMsg").innerHTML=
     "🔥 <strong>"+name+"</strong> got 3 in a row!<br><br>"+
@@ -306,7 +279,7 @@ function showDoubleBanner(team){
     "✅ Correct = <strong style='color:#4ade80'>double points</strong> (e.g.: worth "+pts+" → earns "+(pts*2)+")<br>"+
     "❌ Wrong = <strong style='color:#f87171'>lose the round points</strong> (e.g.: −"+pts+")<br><br>"+
     "<small style='color:var(--text-muted)'>The regular bonus (+3) still counts separately!</small>";
-  doubleWaiting=true;
+  gameState.doubleWaiting=true;
   updateNewChallengeButton();
   const banner=document.getElementById("doubleBanner");
   banner.style.display="flex";banner.setAttribute("aria-hidden","false");
@@ -314,22 +287,19 @@ function showDoubleBanner(team){
 }
 
 function acceptDouble(){
-  doubleActive=true;
-  doubleWaiting=false;
+  acceptDoubleBet();
   document.getElementById("doubleBanner").style.display="none";
   document.getElementById("doubleBanner").setAttribute("aria-hidden","true");
-  const name=doubleTeam===1?team1name:team2name;
+  const name=gameState.doubleTeam===1?gameState.team1name:gameState.team2name;
   addToLog("🎲 "+name+" accepted Double or Nothing!");
-  // Give the double question to the team that earned it, not the opponent
-  activeTeam=doubleTeam;
   updateNewChallengeButton();
   // Launch the next challenge immediately
   newChallenge();
 }
 
 function declineDouble(){
-  const name=doubleTeam===1?team1name:team2name;
-  doubleActive=false;doubleTeam=0;doubleWaiting=false;
+  const name=gameState.doubleTeam===1?gameState.team1name:gameState.team2name;
+  declineDoubleBet();
   document.getElementById("doubleBanner").style.display="none";
   document.getElementById("doubleBanner").setAttribute("aria-hidden","true");
   addToLog("🛡 "+name+" preferred to play it safe.");
@@ -339,18 +309,15 @@ function declineDouble(){
 
 function resolveDouble(correct, normalPoints){
   document.getElementById("challengePanel").classList.remove("double-round");
-  const name=doubleTeam===1?team1name:team2name;
+  const name=gameState.doubleTeam===1?gameState.team1name:gameState.team2name;
+  const { team, delta } = settleDouble(correct, normalPoints);
+  addPoint(team, delta);
   if(correct){
-    // Already added normal points — add them again as a bonus
-    addPoint(doubleTeam,normalPoints);
     addToLog("🎲 DOUBLE WON! +"+normalPoints+" bonus for "+name+"! (this round total: +"+(normalPoints*2)+")");
     launchConfetti();
   }else{
-    // Subtract the normal points the team just scored
-    addPoint(doubleTeam,-normalPoints);
     addToLog("💥 DOUBLE LOST! "+name+" loses −"+normalPoints+" pts this round.");
   }
-  doubleActive=false;doubleTeam=0;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -373,7 +340,7 @@ function clearChallengeArea(){
   document.getElementById("revealBtn").style.display="none";
   document.getElementById("revealBonusBtn").style.display="none";
   document.getElementById("bonusCorrectBtn").style.display="none";
-  currentAnswer="";bonusAnswer="";bonusRevealed=false;
+  gameState.currentAnswer="";gameState.bonusAnswer="";gameState.bonusRevealed=false;
   clearAnsweringPlayerDisplay();
 }
 
@@ -381,7 +348,7 @@ function clearChallengeArea(){
 //  HELPER: show bonus UI
 // ═══════════════════════════════════════════════════════
 function setupBonus(subHtml, answer){
-  bonusAnswer=answer;
+  gameState.bonusAnswer=answer;
   const sub=document.getElementById("subChallengeBox");
   sub.innerHTML=subHtml;sub.style.display="block";
   document.getElementById("revealBonusBtn").style.display="inline-block";
@@ -394,7 +361,7 @@ function newChallenge(){
   const panel=document.getElementById("challengePanel");
   panel.classList.remove("challenge-panel--idle","challenge-bonus");
   // If double is active, show double indicator
-  if(doubleActive){panel.classList.add("double-round");}
+  if(gameState.doubleActive){panel.classList.add("double-round");}
   else{panel.classList.remove("double-round");}
 
   setAwaitingScore(false);setRoundLocked(false);
@@ -406,18 +373,18 @@ function newChallenge(){
   document.getElementById("emojiArea").innerHTML="";
   document.getElementById("subChallengeBox").style.display="none";
   document.getElementById("subChallengeBox").innerHTML="";
-  currentAnswer="";bonusAnswer="";bonusRevealed=false;
+  gameState.currentAnswer="";gameState.bonusAnswer="";gameState.bonusRevealed=false;
 
   const titles=["Name 3 Things","Emoji + Sentence","Complete the Sentence","Translation + Negative","Odd One Out","Rhyme Time","Describe It!"];
   let challengeItem,titleText;
-  if(isRandom){currentMode=Math.floor(Math.random()*7);titleText="Random Challenge";}
-  else{titleText=titles[currentMode];}
+  if(gameState.isRandom){gameState.currentMode=Math.floor(Math.random()*7);titleText="Random Challenge";}
+  else{titleText=titles[gameState.currentMode];}
 
   // ── Mode 0: Name 3 Things ──
-  if(currentMode===0){
+  if(gameState.currentMode===0){
     challengeItem=pickFromPool(name3Challenges,"name3");
     document.getElementById("challengeText").innerHTML="<strong>"+getN3Prompt(challengeItem)+"</strong><br><small>In English only!</small>";
-    currentAnswer=challengeItem.examples||"Three valid examples in English.";
+    gameState.currentAnswer=challengeItem.examples||"Three valid examples in English.";
     document.getElementById("revealBtn").style.display="inline-block";
     // Bonus: use one of those words in a sentence
     const word=(challengeItem.examples||"").split(",")[0].trim();
@@ -427,11 +394,11 @@ function newChallenge(){
     );
   }
   // ── Mode 1: Emoji + Sentence ──
-  else if(currentMode===1){
+  else if(gameState.currentMode===1){
     challengeItem=pickFromPool(emojiPuzzles,"emoji");
     document.getElementById("challengeText").innerHTML="What is this in English?";
     document.getElementById("emojiArea").innerHTML="<span class='emoji'>"+challengeItem.emoji+"</span>";
-    currentAnswer=challengeItem.answer;
+    gameState.currentAnswer=challengeItem.answer;
     document.getElementById("revealBtn").style.display="inline-block";
     setupBonus(
       "<strong>✍️ Bonus (+"+BONUS_POINTS+" pts):</strong> Create an English sentence using <strong>"+challengeItem.answer+"</strong>!",
@@ -439,10 +406,10 @@ function newChallenge(){
     );
   }
   // ── Mode 2: Complete Sentence ──
-  else if(currentMode===2){
+  else if(gameState.currentMode===2){
     challengeItem=pickFromPool(sentenceChallenges,"sentence");
     document.getElementById("challengeText").innerHTML="<strong>"+challengeItem.sentence+"</strong>";
-    currentAnswer=challengeItem.answer;
+    gameState.currentAnswer=challengeItem.answer;
     const area=document.getElementById("optionsArea");
     area.removeAttribute("data-answered");
     challengeItem.options.forEach(opt=>{
@@ -457,11 +424,11 @@ function newChallenge(){
     );
   }
   // ── Mode 3: Translation + Negative ──
-  else if(currentMode===3){
+  else if(gameState.currentMode===3){
     challengeItem=pickFromPool(translationChallenges,"translation");
     const dir=challengeItem.type==="en-pt"?"Translate to Portuguese:":"Translate to English:";
     document.getElementById("challengeText").innerHTML="<strong>"+dir+"</strong><br><br><em>"+challengeItem.text+"</em>";
-    currentAnswer=challengeItem.answer;
+    gameState.currentAnswer=challengeItem.answer;
     document.getElementById("revealBtn").style.display="inline-block";
     if(challengeItem.negative){
       setupBonus(
@@ -471,7 +438,7 @@ function newChallenge(){
     }
   }
   // ── Mode 4: Odd One Out ──
-  else if(currentMode===4){
+  else if(gameState.currentMode===4){
     challengeItem=pickFromPool(oddOneChallenges,"oddone");
     const shuffled=[...challengeItem.items].sort(()=>Math.random()-.5);
     document.getElementById("challengeText").innerHTML="<strong>Which one doesn't belong? (Odd one out)</strong>";
@@ -482,17 +449,17 @@ function newChallenge(){
       btn.textContent=opt;btn.dataset.option=opt;
       btn.onclick=()=>checkAnswer(opt);area.appendChild(btn);
     });
-    currentAnswer=challengeItem.odd;
+    gameState.currentAnswer=challengeItem.odd;
     setupBonus(
       "<strong>🗣️ Bonus (+"+BONUS_POINTS+" pts):</strong> Explain in English <em>why</em> it doesn't belong to the group!",
       challengeItem.reason
     );
   }
   // ── Mode 5: Rhyme Time ──
-  else if(currentMode===5){
+  else if(gameState.currentMode===5){
     challengeItem=pickFromPool(rhymeChallenges,"rhyme");
     document.getElementById("challengeText").innerHTML="<strong>Name 3 words that rhyme with:</strong><br><span style='font-size:2em;font-weight:800;color:var(--accent-yellow)'>"+challengeItem.word+"</span>";
-    currentAnswer="Exemplos: "+challengeItem.rhymes.slice(0,5).join(", ");
+    gameState.currentAnswer="Exemplos: "+challengeItem.rhymes.slice(0,5).join(", ");
     document.getElementById("revealBtn").style.display="inline-block";
     panel.classList.add("challenge-bonus");
     setupBonus(
@@ -501,10 +468,10 @@ function newChallenge(){
     );
   }
   // ── Mode 6: Describe It! ──
-  else if(currentMode===6){
+  else if(gameState.currentMode===6){
     challengeItem=pickFromPool(describeChallenges,"describe");
     document.getElementById("challengeText").innerHTML="<strong>Describe this word in English without saying it:</strong><br><span style='font-size:1.8em;font-weight:800;color:var(--accent-purple)'>"+challengeItem.word+"</span>";
-    currentAnswer=challengeItem.word+(challengeItem.ptAnswer?" / "+challengeItem.ptAnswer:"");
+    gameState.currentAnswer=challengeItem.word+(challengeItem.ptAnswer?" / "+challengeItem.ptAnswer:"");
     document.getElementById("revealBtn").style.display="inline-block";
     panel.classList.add("challenge-bonus");
     setupBonus(
@@ -515,14 +482,14 @@ function newChallenge(){
 
   applyRoundDifficulty(challengeItem.difficulty);
   setModeTitleWithDifficulty(titleText,challengeItem.difficulty);
-  turnTeam=activeTeam;
-  assignAnsweringPlayer(turnTeam);
+  gameState.turnTeam=gameState.activeTeam;
+  assignAnsweringPlayer(gameState.turnTeam);
   updateTeamTurnDisplay();
   startTimer();
-  const playerNote=currentAnsweringPlayer?" ("+currentAnsweringPlayer+" answers)":"";
-  const teamName=activeTeam===1?team1name:team2name;
-  const doubleNote=doubleActive?" 🎲 DOUBLE ROUND!":"";
-  addToLog(teamName+" — "+titles[currentMode]+playerNote+doubleNote);
+  const playerNote=gameState.currentAnsweringPlayer?" ("+gameState.currentAnsweringPlayer+" answers)":"";
+  const teamName=gameState.activeTeam===1?gameState.team1name:gameState.team2name;
+  const doubleNote=gameState.doubleActive?" 🎲 DOUBLE ROUND!":"";
+  addToLog(teamName+" — "+titles[gameState.currentMode]+playerNote+doubleNote);
   advanceTeamTurn();
   updateNewChallengeButton();
 }
@@ -531,61 +498,61 @@ function newChallenge(){
 //  MARK CORRECT / WRONG
 // ═══════════════════════════════════════════════════════
 function markCorrect(kind){
-  if(roundLocked)return;
+  if(gameState.roundLocked)return;
   kind=kind||"full";
-  const name=turnTeam===1?team1name:team2name;
+  const name=gameState.turnTeam===1?gameState.team1name:gameState.team2name;
   const diffLabel=getDifficultyMeta(gameState.currentDifficulty).label;
   let points=gameState.roundPointsFull;
   let logMsg="✅ Correct — "+name+" (+"+gameState.roundPointsFull+", "+diffLabel+")";
   if(kind==="help"){
     points=gameState.roundPointsHelp;
-    logMsg=currentAnsweringPlayer
-      ?"✅ Correct with help — "+name+" (+"+gameState.roundPointsHelp+"; was "+currentAnsweringPlayer+")"
+    logMsg=gameState.currentAnsweringPlayer
+      ?"✅ Correct with help — "+name+" (+"+gameState.roundPointsHelp+"; was "+gameState.currentAnsweringPlayer+")"
       :"✅ Correct with help — "+name+" (+"+gameState.roundPointsHelp+", "+diffLabel+")";
-  }else if(currentAnsweringPlayer){
-    logMsg="✅ Correct — "+currentAnsweringPlayer+" ("+name+", +"+gameState.roundPointsFull+")";
+  }else if(gameState.currentAnsweringPlayer){
+    logMsg="✅ Correct — "+gameState.currentAnsweringPlayer+" ("+name+", +"+gameState.roundPointsFull+")";
   }
 
   // 1. Add normal points
-  addPoint(turnTeam,points);
+  addPoint(gameState.turnTeam,points);
   playSound("correct");
   if(points>=gameState.roundPointsHelp)launchConfetti();
   addToLog(logMsg);
 
   // 2. Resolve double (adds the same points again if correct)
-  if(doubleActive&&turnTeam===doubleTeam){
+  if(gameState.doubleActive&&gameState.turnTeam===gameState.doubleTeam){
     resolveDouble(true,points);
   }
 
   setRoundLocked(true);pauseTimer();
 
   // 3. Show bonus controls if bonus exists and not yet given
-  if(bonusAnswer&&!bonusRevealed){
+  if(gameState.bonusAnswer&&!gameState.bonusRevealed){
     const rb=document.getElementById("revealBonusBtn");
     rb.style.display="inline-block";rb.style.pointerEvents="auto";rb.style.opacity="1";
   }
 
   // 4. Track consecutive for Double-or-Nothing trigger
-  if(kind!=="help")checkDoubleOrNothing(turnTeam);
-  else consecutiveCorrect[turnTeam]=0;
+  if(kind!=="help")checkDoubleOrNothing(gameState.turnTeam);
+  else resetStreak(gameState.turnTeam);
 }
 
 function markWrong(){
-  if(roundLocked)return;
-  const name=turnTeam===1?team1name:team2name;
+  if(gameState.roundLocked)return;
+  const name=gameState.turnTeam===1?gameState.team1name:gameState.team2name;
   let msg="❌ Wrong — "+name;
-  if(currentAnswer){const label=(currentMode===0)?"examples":"answer";msg+=" ("+label+": "+currentAnswer+")";}
+  if(gameState.currentAnswer){const label=(gameState.currentMode===0)?"examples":"answer";msg+=" ("+label+": "+gameState.currentAnswer+")";}
 
   // Resolve double as loss BEFORE resetting
-  if(doubleActive&&turnTeam===doubleTeam)resolveDouble(false,gameState.roundPointsFull);
+  if(gameState.doubleActive&&gameState.turnTeam===gameState.doubleTeam)resolveDouble(false,gameState.roundPointsFull);
 
-  consecutiveCorrect[turnTeam]=0;
+  resetStreak(gameState.turnTeam);
   playSound("wrong");
   addToLog(msg);
   setRoundLocked(true);pauseTimer();
 
   // Still allow bonus even if main was wrong
-  if(bonusAnswer&&!bonusRevealed){
+  if(gameState.bonusAnswer&&!gameState.bonusRevealed){
     const rb=document.getElementById("revealBonusBtn");
     rb.style.display="inline-block";rb.style.pointerEvents="auto";rb.style.opacity="1";
   }
@@ -599,45 +566,45 @@ function highlightOptionButtons(selected){
   area.querySelectorAll(".option-btn").forEach(btn=>{
     const opt=btn.dataset.option;
     btn.classList.remove("option-btn--correct","option-btn--wrong","option-btn--reveal-correct");
-    if(opt===selected&&opt===currentAnswer)btn.classList.add("option-btn--correct");
+    if(opt===selected&&opt===gameState.currentAnswer)btn.classList.add("option-btn--correct");
     else if(opt===selected)btn.classList.add("option-btn--wrong");
-    else if(opt===currentAnswer)btn.classList.add("option-btn--reveal-correct");
+    else if(opt===gameState.currentAnswer)btn.classList.add("option-btn--reveal-correct");
   });
   return true;
 }
 
 function checkAnswer(selected){
-  if(roundLocked)return;
+  if(gameState.roundLocked)return;
   if(highlightOptionButtons(selected)){
-    const teamName=turnTeam===1?team1name:team2name;
-    const player=currentAnsweringPlayer?currentAnsweringPlayer+" ":"";
+    const teamName=gameState.turnTeam===1?gameState.team1name:gameState.team2name;
+    const player=gameState.currentAnsweringPlayer?gameState.currentAnsweringPlayer+" ":"";
     addToLog(teamName+" — "+player+"selected: "+selected);
     pauseTimer();setAwaitingScore(true);
   }
 }
 
 function revealAnswer(){
-  if(roundLocked)return;
-  if(currentAnswer){
-    const label=(currentMode===0)?"Examples":"Answer";
-    document.getElementById("challengeText").innerHTML+="<br><br><strong class='answer-reveal' style='font-size:1.2em;'>"+label+": "+currentAnswer+"</strong>";
+  if(gameState.roundLocked)return;
+  if(gameState.currentAnswer){
+    const label=(gameState.currentMode===0)?"Examples":"Answer";
+    document.getElementById("challengeText").innerHTML+="<br><br><strong class='answer-reveal' style='font-size:1.2em;'>"+label+": "+gameState.currentAnswer+"</strong>";
     document.getElementById("revealBtn").style.display="none";
     pauseTimer();setAwaitingScore(true);
   }
 }
 
 function revealBonus(){
-  if(!bonusAnswer)return;
+  if(!gameState.bonusAnswer)return;
   const sub=document.getElementById("subChallengeBox");
-  sub.innerHTML+="<br><strong class='answer-reveal' style='font-size:1.1em;'>Bonus answer: "+bonusAnswer+"</strong>";
+  sub.innerHTML+="<br><strong class='answer-reveal' style='font-size:1.1em;'>Bonus answer: "+gameState.bonusAnswer+"</strong>";
   document.getElementById("revealBonusBtn").style.display="none";
-  bonusRevealed=true;
+  gameState.bonusRevealed=true;
   document.getElementById("bonusCorrectBtn").style.display="inline-block";
 }
 
 function markBonusCorrect(){
-  const name=turnTeam===1?team1name:team2name;
-  addPoint(turnTeam,BONUS_POINTS);
+  const name=gameState.turnTeam===1?gameState.team1name:gameState.team2name;
+  addPoint(gameState.turnTeam,BONUS_POINTS);
   playSound("correct");
   launchConfetti();
   addToLog("✨ Bonus correct! "+name+" +"+BONUS_POINTS+" pts");
@@ -682,6 +649,6 @@ Object.assign(window, {
   startTimer, pauseTimer, resetTimer,
   revealAnswer, revealBonus, markCorrect, markBonusCorrect, markWrong,
   newChallenge,
-  setSoundEnabled: (v) => { soundEnabled = v; },
-  setConfettiEnabled: (v) => { confettiEnabled = v; },
+  setSoundEnabled: (v) => { gameState.soundEnabled = v; },
+  setConfettiEnabled: (v) => { gameState.confettiEnabled = v; },
 });
