@@ -77,6 +77,16 @@ See [`CLAUDE.md`](CLAUDE.md) for a full map of the code, the data shapes for eac
 - All state (scores, players, settings) lives in memory and **resets when the page reloads** — perfect for a fresh session each meeting.
 - Designed for a full-screen 16:9 display (projector or shared screen). Dark theme by default.
 
+## 👥 Team
+
+**Idealizer / Creator**
+- [@neto6](https://github.com/neto6) — neto6
+
+**Collaborators**
+- [@AdilsonOliveira37](https://github.com/AdilsonOliveira37) — Adilson Oliveira
+- [@ajallon68](https://github.com/ajallon68) — Odilon Lima
+- [@leoronchini](https://github.com/leoronchini) — Leonardo Ronchini
+
 ## 📄 License
 
 Released under the MIT License — free to use, share, and adapt for your own study group.
