@@ -7,7 +7,7 @@ export default [
     languageOptions: { globals: { ...globals.browser } },
     rules: {
       "no-empty": "off",
-      "no-unused-vars": ["error", { args: "none" }],
+      "no-unused-vars": ["error", { args: "none", caughtErrors: "none" }],
     },
   },
   { ignores: ["dist/", "node_modules/"] },

@@ -1,0 +1,948 @@
+// ═══════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════
+let score1=0, score2=0;
+let team1name="Blue Team", team2name="Red Team";
+let activeTeam=1, turnTeam=1;
+let currentMode=0, isRandom=true;
+let timerDuration=50;
+let soundEnabled=true, confettiEnabled=true;
+let roundLocked=false;
+let playerTurnIndex={1:0,2:0};
+let currentAnsweringPlayer="";
+let currentDifficulty="medium";
+let roundPointsFull=5, roundPointsHelp=4;
+
+// ── Double-or-Nothing ──
+// doubleActive  = true when the next challenge is a double round
+// doubleTeam    = which team accepted the bet (1 or 2)
+// doubleWaiting = true when banner is shown, waiting for teacher choice
+let consecutiveCorrect={1:0,2:0};
+let doubleActive=false;
+let doubleTeam=0;
+let doubleWaiting=false;
+
+// ── Bonus sub-challenge ──
+const BONUS_POINTS=3;
+let bonusRevealed=false;
+let bonusAnswer="";
+
+const DIFFICULTY_META={
+  easy:  {points:4,seconds:40,label:"Easy",   badgeClass:"difficulty-badge--easy"},
+  medium:{points:5,seconds:50,label:"Medium", badgeClass:"difficulty-badge--medium"},
+  hard:  {points:6,seconds:60,label:"Hard",   badgeClass:"difficulty-badge--hard"}
+};
+const TIMER_RING_R=42;
+const TIMER_RING_LEN=2*Math.PI*TIMER_RING_R;
+let timeLeft=60, timerInterval=null;
+let currentAnswer="";
+let audioCtx=null;
+const usedPools={name3:[],emoji:[],sentence:[],translation:[],oddone:[],rhyme:[],describe:[]};
+
+// ═══════════════════════════════════════════════════════
+//  AUDIO
+// ═══════════════════════════════════════════════════════
+function getAudioCtx(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();return audioCtx}
+function playBeep(freq,dur,type,vol){
+  if(!soundEnabled)return;
+  try{
+    const ctx=getAudioCtx();
+    if(ctx.state==="suspended")ctx.resume();
+    const osc=ctx.createOscillator(),gain=ctx.createGain();
+    osc.type=type||"sine";osc.frequency.value=freq;
+    gain.gain.setValueAtTime(vol||.15,ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+dur);
+    osc.connect(gain);gain.connect(ctx.destination);
+    osc.start();osc.stop(ctx.currentTime+dur);
+  }catch(e){}
+}
+function playSound(kind){
+  if(kind==="tick")    playBeep(880,.07,"square",.1);
+  else if(kind==="timeup") playBeep(200,.4,"sawtooth",.18);
+  else if(kind==="correct"){playBeep(523,.1,"sine",.14);setTimeout(()=>playBeep(784,.14,"sine",.14),90);}
+  else if(kind==="wrong")  playBeep(160,.22,"square",.14);
+  else if(kind==="double"){
+    playBeep(440,.08,"square",.15);setTimeout(()=>playBeep(554,.08,"square",.15),90);
+    setTimeout(()=>playBeep(659,.12,"square",.18),180);setTimeout(()=>playBeep(880,.22,"square",.2),280);
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  CONFETTI
+// ═══════════════════════════════════════════════════════
+function launchConfetti(){
+  if(!confettiEnabled)return;
+  const canvas=document.getElementById("confettiCanvas");
+  const ctx=canvas.getContext("2d");
+  canvas.width=window.innerWidth;canvas.height=window.innerHeight;
+  const colors=["#60a5fa","#ef4444","#fbbf24","#22c55e","#f3f4f6","#a78bfa"];
+  const p=[];
+  for(let i=0;i<130;i++)p.push({x:Math.random()*canvas.width,y:-Math.random()*canvas.height*.5,vx:(Math.random()-.5)*9,vy:Math.random()*4+3,color:colors[Math.floor(Math.random()*colors.length)],w:Math.random()*10+5,h:Math.random()*6+3,rot:Math.random()*360,vr:(Math.random()-.5)*12});
+  let f=0;
+  function frame(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);let any=false;
+    p.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.12;p.rot+=p.vr;if(p.y<canvas.height+30)any=true;ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot*Math.PI/180);ctx.fillStyle=p.color;ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);ctx.restore();});
+    f++;if(any&&f<200)requestAnimationFrame(frame);else ctx.clearRect(0,0,canvas.width,canvas.height);
+  }
+  frame();
+}
+
+// ═══════════════════════════════════════════════════════
+//  POOL PICKER
+// ═══════════════════════════════════════════════════════
+function pickFromPool(pool,key){
+  if(usedPools[key].length>=pool.length)usedPools[key]=[];
+  let idx;
+  do{idx=Math.floor(Math.random()*pool.length);}while(usedPools[key].includes(idx));
+  usedPools[key].push(idx);
+  return pool[idx];
+}
+function resetUsedChallenges(){Object.keys(usedPools).forEach(k=>usedPools[k]=[]);addToLog("Challenge deck reshuffled.");}
+
+// ═══════════════════════════════════════════════════════
+//  TIMER
+// ═══════════════════════════════════════════════════════
+function updateTimerStartLabel(){document.getElementById("timerStartBtn").textContent="▶ Start "+timerDuration+"s";}
+function applyRoundDifficulty(d){
+  const meta=DIFFICULTY_META[d]||DIFFICULTY_META.medium;
+  currentDifficulty=d;timerDuration=meta.seconds;
+  roundPointsFull=meta.points;roundPointsHelp=meta.points-1;
+  updateScoreButtonLabels();updateTimerStartLabel();
+  timeLeft=timerDuration;document.getElementById("timer").textContent=timerDuration;
+  updateTimerRing();
+}
+function difficultyBadgeHtml(d){
+  const meta=DIFFICULTY_META[d]||DIFFICULTY_META.medium;
+  return'<span class="difficulty-badge '+meta.badgeClass+'">'+meta.label+' · +'+meta.points+' · '+meta.seconds+'s</span>';
+}
+function setModeTitleWithDifficulty(title,d){document.getElementById("modeTitle").innerHTML=title+difficultyBadgeHtml(d);}
+function updateScoreButtonLabels(){
+  document.querySelector(".btn-correct").textContent="Correct (+"+roundPointsFull+")";
+  document.querySelector(".btn-correct-help").textContent="Correct with help (+"+roundPointsHelp+")";
+  const bb=document.getElementById("bonusCorrectBtn");
+  if(bb)bb.textContent="✨ Bonus correct (+"+BONUS_POINTS+")";
+}
+function updateNewChallengeButton(){
+  const btn=document.querySelector(".btn-new-challenge");if(!btn)return;
+  const panel=document.getElementById("challengePanel");
+  const isIdle=panel&&panel.classList.contains("challenge-panel--idle");
+  // Also block if waiting for double decision
+  const canNew=(isIdle||roundLocked)&&!doubleWaiting;
+  btn.disabled=!canNew;
+  btn.title=canNew?"":"Score the current round first";
+}
+function setAwaitingScore(v){
+  document.getElementById("challengePanel").classList.toggle("challenge-awaiting-score",v);
+  document.getElementById("awaitingScoreNote").style.display=v?"block":"none";
+}
+function setRoundLocked(v){
+  roundLocked=v;
+  document.getElementById("challengePanel").classList.toggle("challenge-locked",v);
+  if(v)setAwaitingScore(false);
+  updateNewChallengeButton();
+}
+function getTeamPlayerNames(t){return Array.from(document.getElementById("team"+t+"list").querySelectorAll("li")).map(li=>li.dataset.name);}
+function assignAnsweringPlayer(t){
+  const names=getTeamPlayerNames(t);
+  const pEl=document.getElementById("pickedPlayer"),hEl=document.getElementById("pickedPlayerHint");
+  if(!names.length){currentAnsweringPlayer="";pEl.textContent="";hEl.textContent="";return;}
+  const idx=playerTurnIndex[t]%names.length;
+  currentAnsweringPlayer=names[idx];
+  playerTurnIndex[t]=(idx+1)%names.length;
+  pEl.textContent="▶ "+currentAnsweringPlayer+" answers";
+  hEl.textContent="Correct = +"+roundPointsFull+" · With help = +"+roundPointsHelp;
+}
+function clearAnsweringPlayerDisplay(){currentAnsweringPlayer="";document.getElementById("pickedPlayer").textContent="";document.getElementById("pickedPlayerHint").textContent="";}
+function updateTimerRing(){
+  const elapsed=timerDuration-timeLeft;
+  const progress=Math.min(1,Math.max(0,elapsed/timerDuration));
+  const ring=document.getElementById("timerRingProgress");
+  ring.style.strokeDasharray=TIMER_RING_LEN;
+  ring.style.strokeDashoffset=TIMER_RING_LEN*(1-progress);
+  document.getElementById("timerRing").classList.toggle("timer-ring--urgent",timeLeft>0&&timeLeft<=10);
+}
+function startTimer(){
+  if(timerInterval)clearInterval(timerInterval);
+  timeLeft=timerDuration;document.getElementById("timer").textContent=timerDuration;updateTimerRing();
+  timerInterval=setInterval(()=>{
+    timeLeft--;document.getElementById("timer").textContent=timeLeft;updateTimerRing();
+    if(timeLeft>0&&timeLeft<=5)playSound("tick");
+    if(timeLeft<=0){clearInterval(timerInterval);timerInterval=null;playSound("timeup");addToLog("⏰ Time's up!");}
+  },1000);
+}
+function pauseTimer(){if(timerInterval){clearInterval(timerInterval);timerInterval=null;}}
+function resetTimer(){pauseTimer();timeLeft=timerDuration;document.getElementById("timer").textContent=timerDuration;updateTimerRing();}
+
+// ═══════════════════════════════════════════════════════
+//  SCOREBOARD / TEAMS
+// ═══════════════════════════════════════════════════════
+function updateTeamTurnDisplay(){
+  const name=activeTeam===1?team1name:team2name;
+  const el=document.getElementById("teamTurn");
+  el.textContent=name+" — your turn";
+  el.className="team-turn team-turn--"+(activeTeam===1?"blue":"red");
+}
+function advanceTeamTurn(){activeTeam=activeTeam===1?2:1;}
+function updateScoreRosters(){
+  [1,2].forEach(t=>{
+    const names=Array.from(document.getElementById("team"+t+"list").querySelectorAll("li")).map(li=>li.dataset.name);
+    document.getElementById("scoreRoster"+t).textContent=names.join(", ");
+  });
+}
+function updateScoreboardUI(){
+  document.getElementById("scoreTeam1Name").textContent=team1name;
+  document.getElementById("scoreTeam2Name").textContent=team2name;
+  updateScoreRosters();
+  document.getElementById("scorePanel1").classList.toggle("leading",score1>score2);
+  document.getElementById("scorePanel2").classList.toggle("leading",score2>score1);
+}
+function updateModeButtons(){
+  document.querySelectorAll(".mode-btn").forEach((btn,i)=>btn.classList.toggle("active",!isRandom&&currentMode===i));
+  document.getElementById("randomModeBtn").classList.toggle("active",isRandom);
+}
+function openSettingsModal(){
+  document.getElementById("team1input").value=team1name;
+  document.getElementById("team2input").value=team2name;
+  document.getElementById("modalTeam1Label").textContent=team1name;
+  document.getElementById("modalTeam2Label").textContent=team2name;
+  updateModeButtons();
+  document.getElementById("settingsModal").classList.add("open");
+  document.getElementById("settingsModal").setAttribute("aria-hidden","false");
+  document.body.style.overflow="hidden";
+}
+function closeSettingsModal(){
+  document.getElementById("settingsModal").classList.remove("open");
+  document.getElementById("settingsModal").setAttribute("aria-hidden","true");
+  document.body.style.overflow="";
+  updateScoreRosters();
+}
+function updatePlayerListEmpty(t){document.getElementById("team"+t+"empty").style.display=document.getElementById("team"+t+"list").children.length?"none":"block";}
+function setTeamNames(){
+  team1name=document.getElementById("team1input").value.trim()||"Blue Team";
+  team2name=document.getElementById("team2input").value.trim()||"Red Team";
+  document.getElementById("modalTeam1Label").textContent=team1name;
+  document.getElementById("modalTeam2Label").textContent=team2name;
+  updateScoreboardUI();updateTeamTurnDisplay();addToLog("Team names updated.");
+}
+function addPlayer(t){
+  const input=document.getElementById("player"+t),name=input.value.trim();if(!name)return;
+  const list=document.getElementById("team"+t+"list");
+  if(Array.from(list.querySelectorAll("li")).map(li=>li.dataset.name).includes(name))return;
+  const li=document.createElement("li");li.dataset.name=name;
+  const span=document.createElement("span");span.textContent=name;
+  const rm=document.createElement("button");rm.type="button";rm.className="player-remove";rm.setAttribute("aria-label","Remove "+name);rm.textContent="×";
+  rm.onclick=()=>removePlayer(t,li);
+  li.appendChild(span);li.appendChild(rm);list.appendChild(li);
+  input.value="";input.focus();updatePlayerListEmpty(t);updateScoreRosters();
+}
+function removePlayer(t,li){li.remove();updatePlayerListEmpty(t);updateScoreRosters();}
+
+// ═══════════════════════════════════════════════════════
+//  KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════════════════════
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"&&document.getElementById("settingsModal").classList.contains("open")){closeSettingsModal();return;}
+  if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA")return;
+  if(document.getElementById("settingsModal").classList.contains("open"))return;
+  const key=e.key.toLowerCase();
+  if(key==="n"){
+    e.preventDefault();
+    const panel=document.getElementById("challengePanel");
+    const isIdle=panel&&panel.classList.contains("challenge-panel--idle");
+    if((!isIdle&&!roundLocked)||doubleWaiting)return;
+    newChallenge();
+  }
+  else if(key==="1"){e.preventDefault();markCorrect("full");}
+  else if(key==="4"||key==="3"){e.preventDefault();markCorrect("help");}
+  else if(key==="2"){e.preventDefault();markWrong();}
+  else if(key===" "||e.code==="Space"){e.preventDefault();if(!timerInterval)startTimer();}
+});
+
+// ═══════════════════════════════════════════════════════
+//  SCORING
+// ═══════════════════════════════════════════════════════
+function addPoint(team,amount){
+  const delta=amount===undefined?1:amount;
+  if(team===1)score1=Math.max(0,score1+delta);else score2=Math.max(0,score2+delta);
+  document.getElementById("score1").textContent=score1;
+  document.getElementById("score2").textContent=score2;
+  const panel=document.getElementById(team===1?"scorePanel1":"scorePanel2");
+  panel.classList.remove("pulse");void panel.offsetWidth;panel.classList.add("pulse");
+  updateScoreboardUI();
+}
+function resetScores(){
+  score1=score2=0;playerTurnIndex={1:0,2:0};consecutiveCorrect={1:0,2:0};
+  doubleActive=false;doubleTeam=0;doubleWaiting=false;
+  document.getElementById("score1").textContent=0;
+  document.getElementById("score2").textContent=0;
+  document.getElementById("scorePanel1").classList.remove("pulse","leading");
+  document.getElementById("scorePanel2").classList.remove("pulse","leading");
+  document.getElementById("doubleBanner").style.display="none";
+  addToLog("Score reset.");
+}
+function setMode(m){isRandom=false;currentMode=m;updateModeButtons();}
+function randomMode(){isRandom=true;updateModeButtons();}
+
+// ═══════════════════════════════════════════════════════
+//  DOUBLE OR NOTHING
+//  ─────────────────────────────────────────────────────
+//  FLUXO:
+//  1. Time acerta 3 seguidos  → checkDoubleOrNothing() → showDoubleBanner()
+//  2. Banner aparece, botão "Novo Desafio" BLOQUEADO (doubleWaiting=true)
+//  3a. Aceitar  → acceptDouble():  doubleActive=true, doubleWaiting=false,
+//                 chama newChallenge() diretamente com double-round ativo
+//  3b. Recusar  → declineDouble(): doubleActive=false, doubleWaiting=false,
+//                 NÃO chama newChallenge() — professor clica normalmente
+//  4. Na rodada dupla, ao marcar certo/errado → resolveDouble(correct, pts)
+//     Certo: ganha pts NORMAIS + pts DE BÔNUS (total = pts × 2)
+//     Errado: perde os pts da rodada (subtrai)
+// ═══════════════════════════════════════════════════════
+function checkDoubleOrNothing(team){
+  consecutiveCorrect[team]=(consecutiveCorrect[team]||0)+1;
+  if(consecutiveCorrect[team]>=3){
+    consecutiveCorrect[team]=0;
+    doubleTeam=team;
+    showDoubleBanner(team);
+  }
+}
+
+function showDoubleBanner(team){
+  const name=team===1?team1name:team2name;
+  const pts=roundPointsFull; // approximate next round value
+  document.getElementById("doubleBannerMsg").innerHTML=
+    "🔥 <strong>"+name+"</strong> got 3 in a row!<br><br>"+
+    "On the <strong>next question</strong>:<br>"+
+    "✅ Correct = <strong style='color:#4ade80'>double points</strong> (e.g.: worth "+pts+" → earns "+(pts*2)+")<br>"+
+    "❌ Wrong = <strong style='color:#f87171'>lose the round points</strong> (e.g.: −"+pts+")<br><br>"+
+    "<small style='color:var(--text-muted)'>The regular bonus (+3) still counts separately!</small>";
+  doubleWaiting=true;
+  updateNewChallengeButton();
+  const banner=document.getElementById("doubleBanner");
+  banner.style.display="flex";banner.setAttribute("aria-hidden","false");
+  playSound("double");
+}
+
+function acceptDouble(){
+  doubleActive=true;
+  doubleWaiting=false;
+  document.getElementById("doubleBanner").style.display="none";
+  document.getElementById("doubleBanner").setAttribute("aria-hidden","true");
+  const name=doubleTeam===1?team1name:team2name;
+  addToLog("🎲 "+name+" accepted Double or Nothing!");
+  // Give the double question to the team that earned it, not the opponent
+  activeTeam=doubleTeam;
+  updateNewChallengeButton();
+  // Launch the next challenge immediately
+  newChallenge();
+}
+
+function declineDouble(){
+  const name=doubleTeam===1?team1name:team2name;
+  doubleActive=false;doubleTeam=0;doubleWaiting=false;
+  document.getElementById("doubleBanner").style.display="none";
+  document.getElementById("doubleBanner").setAttribute("aria-hidden","true");
+  addToLog("🛡 "+name+" preferred to play it safe.");
+  updateNewChallengeButton();
+  // Teacher presses New Challenge manually
+}
+
+function resolveDouble(correct, normalPoints){
+  document.getElementById("challengePanel").classList.remove("double-round");
+  const name=doubleTeam===1?team1name:team2name;
+  if(correct){
+    // Already added normal points — add them again as a bonus
+    addPoint(doubleTeam,normalPoints);
+    addToLog("🎲 DOUBLE WON! +"+normalPoints+" bonus for "+name+"! (this round total: +"+(normalPoints*2)+")");
+    launchConfetti();
+  }else{
+    // Subtract the normal points the team just scored
+    addPoint(doubleTeam,-normalPoints);
+    addToLog("💥 DOUBLE LOST! "+name+" loses −"+normalPoints+" pts this round.");
+  }
+  doubleActive=false;doubleTeam=0;
+}
+
+// ═══════════════════════════════════════════════════════
+//  CLEAR CHALLENGE AREA
+// ═══════════════════════════════════════════════════════
+function clearChallengeArea(){
+  const panel=document.getElementById("challengePanel");
+  panel.classList.add("challenge-panel--idle");
+  panel.classList.remove("double-round","challenge-bonus");
+  setAwaitingScore(false);setRoundLocked(false);
+  document.getElementById("modeTitle").textContent="";
+  document.getElementById("teamTurn").textContent="";
+  document.getElementById("teamTurn").className="team-turn";
+  document.getElementById("challengeText").innerHTML="Click <strong>New Challenge</strong> to start<br><small>N = new · 1 = correct · 4/3 = with help · 2 = wrong · Space = timer</small>";
+  document.getElementById("challengeText").className="challenge-text challenge-idle-msg";
+  document.getElementById("emojiArea").innerHTML="";
+  document.getElementById("optionsArea").innerHTML="";
+  document.getElementById("subChallengeBox").style.display="none";
+  document.getElementById("subChallengeBox").innerHTML="";
+  document.getElementById("revealBtn").style.display="none";
+  document.getElementById("revealBonusBtn").style.display="none";
+  document.getElementById("bonusCorrectBtn").style.display="none";
+  currentAnswer="";bonusAnswer="";bonusRevealed=false;
+  clearAnsweringPlayerDisplay();
+}
+
+// ═══════════════════════════════════════════════════════
+//  HELPER: show bonus UI
+// ═══════════════════════════════════════════════════════
+function setupBonus(subHtml, answer){
+  bonusAnswer=answer;
+  const sub=document.getElementById("subChallengeBox");
+  sub.innerHTML=subHtml;sub.style.display="block";
+  document.getElementById("revealBonusBtn").style.display="inline-block";
+}
+
+// ═══════════════════════════════════════════════════════
+//  NEW CHALLENGE
+// ═══════════════════════════════════════════════════════
+function newChallenge(){
+  const panel=document.getElementById("challengePanel");
+  panel.classList.remove("challenge-panel--idle","challenge-bonus");
+  // If double is active, show double indicator
+  if(doubleActive){panel.classList.add("double-round");}
+  else{panel.classList.remove("double-round");}
+
+  setAwaitingScore(false);setRoundLocked(false);
+  document.getElementById("challengeText").className="challenge-text";
+  document.getElementById("revealBtn").style.display="none";
+  document.getElementById("revealBonusBtn").style.display="none";
+  document.getElementById("bonusCorrectBtn").style.display="none";
+  document.getElementById("optionsArea").innerHTML="";
+  document.getElementById("emojiArea").innerHTML="";
+  document.getElementById("subChallengeBox").style.display="none";
+  document.getElementById("subChallengeBox").innerHTML="";
+  currentAnswer="";bonusAnswer="";bonusRevealed=false;
+
+  const titles=["Name 3 Things","Emoji + Sentence","Complete the Sentence","Translation + Negative","Odd One Out","Rhyme Time","Describe It!"];
+  let challengeItem,titleText;
+  if(isRandom){currentMode=Math.floor(Math.random()*7);titleText="Random Challenge";}
+  else{titleText=titles[currentMode];}
+
+  // ── Mode 0: Name 3 Things ──
+  if(currentMode===0){
+    challengeItem=pickFromPool(name3Challenges,"name3");
+    document.getElementById("challengeText").innerHTML="<strong>"+getN3Prompt(challengeItem)+"</strong><br><small>In English only!</small>";
+    currentAnswer=challengeItem.examples||"Three valid examples in English.";
+    document.getElementById("revealBtn").style.display="inline-block";
+    // Bonus: use one of those words in a sentence
+    const word=(challengeItem.examples||"").split(",")[0].trim();
+    if(word) setupBonus(
+      "<strong>✍️ Bonus (+"+BONUS_POINTS+" pts):</strong> Use <strong>"+word+"</strong> in an English sentence!",
+      "Any correct English sentence using the word \""+word+"\""
+    );
+  }
+  // ── Mode 1: Emoji + Sentence ──
+  else if(currentMode===1){
+    challengeItem=pickFromPool(emojiPuzzles,"emoji");
+    document.getElementById("challengeText").innerHTML="What is this in English?";
+    document.getElementById("emojiArea").innerHTML="<span class='emoji'>"+challengeItem.emoji+"</span>";
+    currentAnswer=challengeItem.answer;
+    document.getElementById("revealBtn").style.display="inline-block";
+    setupBonus(
+      "<strong>✍️ Bonus (+"+BONUS_POINTS+" pts):</strong> Create an English sentence using <strong>"+challengeItem.answer+"</strong>!",
+      "Any correct English sentence using \""+challengeItem.answer+"\""
+    );
+  }
+  // ── Mode 2: Complete Sentence ──
+  else if(currentMode===2){
+    challengeItem=pickFromPool(sentenceChallenges,"sentence");
+    document.getElementById("challengeText").innerHTML="<strong>"+challengeItem.sentence+"</strong>";
+    currentAnswer=challengeItem.answer;
+    const area=document.getElementById("optionsArea");
+    area.removeAttribute("data-answered");
+    challengeItem.options.forEach(opt=>{
+      const btn=document.createElement("button");btn.type="button";btn.className="option-btn";
+      btn.textContent=opt;btn.dataset.option=opt;
+      btn.onclick=()=>checkAnswer(opt);area.appendChild(btn);
+    });
+    // Bonus: write the full correct sentence
+    setupBonus(
+      "<strong>✍️ Bonus (+"+BONUS_POINTS+" pts):</strong> Now say the full sentence in English!",
+      "The full correct sentence with: "+challengeItem.answer
+    );
+  }
+  // ── Mode 3: Translation + Negative ──
+  else if(currentMode===3){
+    challengeItem=pickFromPool(translationChallenges,"translation");
+    const dir=challengeItem.type==="en-pt"?"Translate to Portuguese:":"Translate to English:";
+    document.getElementById("challengeText").innerHTML="<strong>"+dir+"</strong><br><br><em>"+challengeItem.text+"</em>";
+    currentAnswer=challengeItem.answer;
+    document.getElementById("revealBtn").style.display="inline-block";
+    if(challengeItem.negative){
+      setupBonus(
+        "<strong>➕ Bonus (+"+BONUS_POINTS+" pts):</strong> Say the <strong>negative form</strong> of this sentence in English!",
+        challengeItem.negative
+      );
+    }
+  }
+  // ── Mode 4: Odd One Out ──
+  else if(currentMode===4){
+    challengeItem=pickFromPool(oddOneChallenges,"oddone");
+    const shuffled=[...challengeItem.items].sort(()=>Math.random()-.5);
+    document.getElementById("challengeText").innerHTML="<strong>Which one doesn't belong? (Odd one out)</strong>";
+    const area=document.getElementById("optionsArea");
+    area.removeAttribute("data-answered");
+    shuffled.forEach(opt=>{
+      const btn=document.createElement("button");btn.type="button";btn.className="option-btn";
+      btn.textContent=opt;btn.dataset.option=opt;
+      btn.onclick=()=>checkAnswer(opt);area.appendChild(btn);
+    });
+    currentAnswer=challengeItem.odd;
+    setupBonus(
+      "<strong>🗣️ Bonus (+"+BONUS_POINTS+" pts):</strong> Explain in English <em>why</em> it doesn't belong to the group!",
+      challengeItem.reason
+    );
+  }
+  // ── Mode 5: Rhyme Time ──
+  else if(currentMode===5){
+    challengeItem=pickFromPool(rhymeChallenges,"rhyme");
+    document.getElementById("challengeText").innerHTML="<strong>Name 3 words that rhyme with:</strong><br><span style='font-size:2em;font-weight:800;color:var(--accent-yellow)'>"+challengeItem.word+"</span>";
+    currentAnswer="Exemplos: "+challengeItem.rhymes.slice(0,5).join(", ");
+    document.getElementById("revealBtn").style.display="inline-block";
+    panel.classList.add("challenge-bonus");
+    setupBonus(
+      "<strong>✍️ Bonus (+"+BONUS_POINTS+" pts):</strong> Use the word <strong>"+challengeItem.word+"</strong> in an English sentence!",
+      "Any correct English sentence using \""+challengeItem.word+"\""
+    );
+  }
+  // ── Mode 6: Describe It! ──
+  else if(currentMode===6){
+    challengeItem=pickFromPool(describeChallenges,"describe");
+    document.getElementById("challengeText").innerHTML="<strong>Describe this word in English without saying it:</strong><br><span style='font-size:1.8em;font-weight:800;color:var(--accent-purple)'>"+challengeItem.word+"</span>";
+    currentAnswer=challengeItem.word+(challengeItem.ptAnswer?" / "+challengeItem.ptAnswer:"");
+    document.getElementById("revealBtn").style.display="inline-block";
+    panel.classList.add("challenge-bonus");
+    setupBonus(
+      "<strong>✍️ Bonus (+"+BONUS_POINTS+" pts):</strong> "+challengeItem.sentence,
+      "Any correct English sentence using \""+challengeItem.word+"\""
+    );
+  }
+
+  applyRoundDifficulty(challengeItem.difficulty);
+  setModeTitleWithDifficulty(titleText,challengeItem.difficulty);
+  turnTeam=activeTeam;
+  assignAnsweringPlayer(turnTeam);
+  updateTeamTurnDisplay();
+  startTimer();
+  const playerNote=currentAnsweringPlayer?" ("+currentAnsweringPlayer+" answers)":"";
+  const teamName=activeTeam===1?team1name:team2name;
+  const doubleNote=doubleActive?" 🎲 DOUBLE ROUND!":"";
+  addToLog(teamName+" — "+titles[currentMode]+playerNote+doubleNote);
+  advanceTeamTurn();
+  updateNewChallengeButton();
+}
+
+// ═══════════════════════════════════════════════════════
+//  MARK CORRECT / WRONG
+// ═══════════════════════════════════════════════════════
+function markCorrect(kind){
+  if(roundLocked)return;
+  kind=kind||"full";
+  const name=turnTeam===1?team1name:team2name;
+  const diffLabel=(DIFFICULTY_META[currentDifficulty]||DIFFICULTY_META.medium).label;
+  let points=roundPointsFull;
+  let logMsg="✅ Correct — "+name+" (+"+roundPointsFull+", "+diffLabel+")";
+  if(kind==="help"){
+    points=roundPointsHelp;
+    logMsg=currentAnsweringPlayer
+      ?"✅ Correct with help — "+name+" (+"+roundPointsHelp+"; was "+currentAnsweringPlayer+")"
+      :"✅ Correct with help — "+name+" (+"+roundPointsHelp+", "+diffLabel+")";
+  }else if(currentAnsweringPlayer){
+    logMsg="✅ Correct — "+currentAnsweringPlayer+" ("+name+", +"+roundPointsFull+")";
+  }
+
+  // 1. Add normal points
+  addPoint(turnTeam,points);
+  playSound("correct");
+  if(points>=roundPointsHelp)launchConfetti();
+  addToLog(logMsg);
+
+  // 2. Resolve double (adds the same points again if correct)
+  if(doubleActive&&turnTeam===doubleTeam){
+    resolveDouble(true,points);
+  }
+
+  setRoundLocked(true);pauseTimer();
+
+  // 3. Show bonus controls if bonus exists and not yet given
+  if(bonusAnswer&&!bonusRevealed){
+    const rb=document.getElementById("revealBonusBtn");
+    rb.style.display="inline-block";rb.style.pointerEvents="auto";rb.style.opacity="1";
+  }
+
+  // 4. Track consecutive for Double-or-Nothing trigger
+  if(kind!=="help")checkDoubleOrNothing(turnTeam);
+  else consecutiveCorrect[turnTeam]=0;
+}
+
+function markWrong(){
+  if(roundLocked)return;
+  const name=turnTeam===1?team1name:team2name;
+  let msg="❌ Wrong — "+name;
+  if(currentAnswer){const label=(currentMode===0)?"examples":"answer";msg+=" ("+label+": "+currentAnswer+")";}
+
+  // Resolve double as loss BEFORE resetting
+  if(doubleActive&&turnTeam===doubleTeam)resolveDouble(false,roundPointsFull);
+
+  consecutiveCorrect[turnTeam]=0;
+  playSound("wrong");
+  addToLog(msg);
+  setRoundLocked(true);pauseTimer();
+
+  // Still allow bonus even if main was wrong
+  if(bonusAnswer&&!bonusRevealed){
+    const rb=document.getElementById("revealBonusBtn");
+    rb.style.display="inline-block";rb.style.pointerEvents="auto";rb.style.opacity="1";
+  }
+}
+
+function highlightOptionButtons(selected){
+  const area=document.getElementById("optionsArea");
+  if(!area.querySelector(".option-btn"))return null;
+  if(area.dataset.answered==="1")return false;
+  area.dataset.answered="1";
+  area.querySelectorAll(".option-btn").forEach(btn=>{
+    const opt=btn.dataset.option;
+    btn.classList.remove("option-btn--correct","option-btn--wrong","option-btn--reveal-correct");
+    if(opt===selected&&opt===currentAnswer)btn.classList.add("option-btn--correct");
+    else if(opt===selected)btn.classList.add("option-btn--wrong");
+    else if(opt===currentAnswer)btn.classList.add("option-btn--reveal-correct");
+  });
+  return true;
+}
+
+function checkAnswer(selected){
+  if(roundLocked)return;
+  if(highlightOptionButtons(selected)){
+    const teamName=turnTeam===1?team1name:team2name;
+    const player=currentAnsweringPlayer?currentAnsweringPlayer+" ":"";
+    addToLog(teamName+" — "+player+"selected: "+selected);
+    pauseTimer();setAwaitingScore(true);
+  }
+}
+
+function revealAnswer(){
+  if(roundLocked)return;
+  if(currentAnswer){
+    const label=(currentMode===0)?"Examples":"Answer";
+    document.getElementById("challengeText").innerHTML+="<br><br><strong class='answer-reveal' style='font-size:1.2em;'>"+label+": "+currentAnswer+"</strong>";
+    document.getElementById("revealBtn").style.display="none";
+    pauseTimer();setAwaitingScore(true);
+  }
+}
+
+function revealBonus(){
+  if(!bonusAnswer)return;
+  const sub=document.getElementById("subChallengeBox");
+  sub.innerHTML+="<br><strong class='answer-reveal' style='font-size:1.1em;'>Bonus answer: "+bonusAnswer+"</strong>";
+  document.getElementById("revealBonusBtn").style.display="none";
+  bonusRevealed=true;
+  document.getElementById("bonusCorrectBtn").style.display="inline-block";
+}
+
+function markBonusCorrect(){
+  const name=turnTeam===1?team1name:team2name;
+  addPoint(turnTeam,BONUS_POINTS);
+  playSound("correct");
+  launchConfetti();
+  addToLog("✨ Bonus correct! "+name+" +"+BONUS_POINTS+" pts");
+  document.getElementById("bonusCorrectBtn").style.display="none";
+  document.getElementById("revealBonusBtn").style.display="none";
+}
+
+// ═══════════════════════════════════════════════════════
+//  LOG
+// ═══════════════════════════════════════════════════════
+function addToLog(text){
+  const log=document.getElementById("log");
+  const time=new Date().toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"});
+  const entry=document.createElement("div");entry.className="log-entry";
+  const small=document.createElement("small");small.textContent="["+time+"] "+text;
+  entry.appendChild(small);log.appendChild(entry);log.scrollTop=log.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════
+//  CHALLENGE DATA
+// ═══════════════════════════════════════════════════════
+function getN3Prompt(item){return(item&&item.text)?item.text:"";}
+
+const name3Challenges=[
+  {text:"Name 3 colors",examples:"red, blue, green",difficulty:"easy"},
+  {text:"Name 3 animals",examples:"dog, cat, bird",difficulty:"easy"},
+  {text:"Name 3 fruits",examples:"apple, banana, orange",difficulty:"easy"},
+  {text:"Name 3 vegetables",examples:"carrot, tomato, lettuce",difficulty:"easy"},
+  {text:"Name 3 sports",examples:"soccer, basketball, tennis",difficulty:"easy"},
+  {text:"Name 3 professions",examples:"teacher, doctor, engineer",difficulty:"easy"},
+  {text:"Name 3 clothing items",examples:"shirt, pants, jacket",difficulty:"easy"},
+  {text:"Name 3 drinks",examples:"water, juice, milk",difficulty:"easy"},
+  {text:"Name 3 things in the kitchen",examples:"knife, stove, refrigerator",difficulty:"easy"},
+  {text:"Name 3 things in the bedroom",examples:"bed, pillow, lamp",difficulty:"easy"},
+  {text:"Name 3 means of transport",examples:"car, bus, train",difficulty:"easy"},
+  {text:"Name 3 family members",examples:"mother, father, sister",difficulty:"easy"},
+  {text:"Name 3 body parts",examples:"head, arm, leg",difficulty:"easy"},
+  {text:"Name 3 types of weather",examples:"sunny, rainy, cloudy",difficulty:"easy"},
+  {text:"Name 3 hobbies",examples:"reading, painting, gaming",difficulty:"easy"},
+  {text:"Name 3 pieces of furniture",examples:"chair, table, sofa",difficulty:"easy"},
+  {text:"Name 3 sweet things",examples:"candy, cake, chocolate",difficulty:"easy"},
+  {text:"Name 3 sea animals",examples:"fish, shark, dolphin",difficulty:"easy"},
+  {text:"Name 3 emotions",examples:"happy, sad, angry",difficulty:"easy"},
+  {text:"Name 3 rooms in a house",examples:"kitchen, bedroom, living room",difficulty:"easy"},
+  {text:"Name 3 school subjects",examples:"math, science, history",difficulty:"medium"},
+  {text:"Name 3 electronic devices",examples:"phone, laptop, tablet",difficulty:"medium"},
+  {text:"Name 3 countries",examples:"Brazil, USA, Japan",difficulty:"medium"},
+  {text:"Name 3 musical instruments",examples:"guitar, piano, drums",difficulty:"medium"},
+  {text:"Name 3 things at the beach",examples:"sand, waves, towel",difficulty:"medium"},
+  {text:"Name 3 adjectives in English",examples:"big, happy, fast",difficulty:"medium"},
+  {text:"Name 3 verbs in English",examples:"run, eat, sleep",difficulty:"medium"},
+  {text:"Name 3 streaming platforms",examples:"Netflix, YouTube, Disney+",difficulty:"medium"},
+  {text:"Name 3 movie genres",examples:"action, comedy, horror",difficulty:"medium"},
+  {text:"Name 3 superpowers",examples:"fly, invisibility, strength",difficulty:"medium"},
+  {text:"Name 3 irregular verbs",examples:"go-went, eat-ate, see-saw",difficulty:"hard"},
+  {text:"Name 3 Olympic sports",examples:"swimming, gymnastics, running",difficulty:"hard"},
+  {text:"Name 3 planets",examples:"Earth, Mars, Jupiter",difficulty:"hard"},
+  {text:"Name 3 zodiac signs in English",examples:"Aries, Taurus, Gemini",difficulty:"hard"},
+  {text:"Name 3 things you recycle",examples:"plastic bottles, paper, glass",difficulty:"hard"},
+];
+
+const emojiPuzzles=[
+  {emoji:"🐘",answer:"Elephant",difficulty:"medium"},
+  {emoji:"🐕",answer:"Dog",difficulty:"easy"},
+  {emoji:"🐈",answer:"Cat",difficulty:"easy"},
+  {emoji:"🦒",answer:"Giraffe",difficulty:"medium"},
+  {emoji:"🐧",answer:"Penguin",difficulty:"medium"},
+  {emoji:"🦋",answer:"Butterfly",difficulty:"medium"},
+  {emoji:"🍕",answer:"Pizza",difficulty:"easy"},
+  {emoji:"🍔",answer:"Burger",difficulty:"easy"},
+  {emoji:"🌮",answer:"Taco",difficulty:"medium"},
+  {emoji:"🍦",answer:"Ice cream",difficulty:"easy"},
+  {emoji:"🍎",answer:"Apple",difficulty:"easy"},
+  {emoji:"🍌",answer:"Banana",difficulty:"easy"},
+  {emoji:"🌈",answer:"Rainbow",difficulty:"easy"},
+  {emoji:"☀️",answer:"Sun",difficulty:"easy"},
+  {emoji:"❤️",answer:"Heart",difficulty:"easy"},
+  {emoji:"🔥",answer:"Fire",difficulty:"easy"},
+  {emoji:"🚀",answer:"Rocket",difficulty:"medium"},
+  {emoji:"🏠",answer:"House",difficulty:"easy"},
+  {emoji:"🚗",answer:"Car",difficulty:"easy"},
+  {emoji:"✈️",answer:"Airplane",difficulty:"easy"},
+  {emoji:"⚽",answer:"Football",difficulty:"easy"},
+  {emoji:"🎸",answer:"Guitar",difficulty:"medium"},
+  {emoji:"📱",answer:"Smartphone",difficulty:"medium"},
+  {emoji:"🎂",answer:"Birthday cake",difficulty:"medium"},
+  {emoji:"🐟",answer:"Fish",difficulty:"easy"},
+  {emoji:"🐙",answer:"Octopus",difficulty:"hard"},
+  {emoji:"🦈",answer:"Shark",difficulty:"medium"},
+  {emoji:"🦁",answer:"Lion",difficulty:"easy"},
+  {emoji:"🐯",answer:"Tiger",difficulty:"easy"},
+  {emoji:"🐻",answer:"Bear",difficulty:"easy"},
+  {emoji:"🐰",answer:"Rabbit",difficulty:"easy"},
+  {emoji:"🐸",answer:"Frog",difficulty:"easy"},
+  {emoji:"🐢",answer:"Turtle",difficulty:"medium"},
+  {emoji:"🦉",answer:"Owl",difficulty:"medium"},
+  {emoji:"🐝",answer:"Bee",difficulty:"easy"},
+  {emoji:"🐌",answer:"Snail",difficulty:"hard"},
+  {emoji:"🍇",answer:"Grapes",difficulty:"easy"},
+  {emoji:"🍓",answer:"Strawberry",difficulty:"easy"},
+  {emoji:"🥕",answer:"Carrot",difficulty:"easy"},
+  {emoji:"🥦",answer:"Broccoli",difficulty:"hard"},
+  {emoji:"🍳",answer:"Egg",difficulty:"easy"},
+  {emoji:"🧀",answer:"Cheese",difficulty:"easy"},
+  {emoji:"🍩",answer:"Donut",difficulty:"easy"},
+  {emoji:"🍪",answer:"Cookie",difficulty:"easy"},
+  {emoji:"☕",answer:"Coffee",difficulty:"easy"},
+  {emoji:"🍵",answer:"Tea",difficulty:"easy"},
+  {emoji:"🌙",answer:"Moon",difficulty:"easy"},
+  {emoji:"⭐",answer:"Star",difficulty:"easy"},
+  {emoji:"☁️",answer:"Cloud",difficulty:"easy"},
+  {emoji:"⛈️",answer:"Storm",difficulty:"hard"},
+  {emoji:"❄️",answer:"Snow",difficulty:"easy"},
+  {emoji:"🌊",answer:"Wave",difficulty:"hard"},
+  {emoji:"🏖️",answer:"Beach",difficulty:"easy"},
+  {emoji:"🏔️",answer:"Mountain",difficulty:"medium"},
+  {emoji:"🌳",answer:"Tree",difficulty:"easy"},
+  {emoji:"🌸",answer:"Flower",difficulty:"easy"},
+  {emoji:"🎃",answer:"Pumpkin",difficulty:"medium"},
+  {emoji:"👑",answer:"Crown",difficulty:"hard"},
+  {emoji:"🎒",answer:"Backpack",difficulty:"hard"},
+  {emoji:"👟",answer:"Sneakers",difficulty:"hard"},
+  {emoji:"🚲",answer:"Bicycle",difficulty:"medium"},
+  {emoji:"🚂",answer:"Train",difficulty:"easy"},
+  {emoji:"🚢",answer:"Ship",difficulty:"medium"},
+  {emoji:"🚌",answer:"Bus",difficulty:"easy"},
+  {emoji:"🚁",answer:"Helicopter",difficulty:"hard"},
+  {emoji:"🎬",answer:"Movie",difficulty:"medium"},
+  {emoji:"📚",answer:"Books",difficulty:"easy"},
+  {emoji:"✏️",answer:"Pencil",difficulty:"easy"},
+  {emoji:"🎮",answer:"Video game",difficulty:"medium"},
+  {emoji:"🎤",answer:"Microphone",difficulty:"hard"},
+  {emoji:"🎧",answer:"Headphones",difficulty:"hard"},
+  {emoji:"💻",answer:"Laptop",difficulty:"medium"},
+  {emoji:"⌚",answer:"Watch",difficulty:"medium"},
+  {emoji:"🔑",answer:"Key",difficulty:"easy"},
+  {emoji:"💡",answer:"Light bulb",difficulty:"medium"},
+  {emoji:"🎁",answer:"Gift",difficulty:"easy"},
+  {emoji:"🎈",answer:"Balloon",difficulty:"easy"},
+  {emoji:"🏆",answer:"Trophy",difficulty:"medium"},
+  {emoji:"🥇",answer:"Gold medal",difficulty:"hard"},
+  {emoji:"🏀",answer:"Basketball",difficulty:"easy"},
+  {emoji:"🎾",answer:"Tennis",difficulty:"medium"},
+  {emoji:"🏐",answer:"Volleyball",difficulty:"hard"},
+];
+
+const sentenceChallenges=[
+  {sentence:"I usually _____ coffee in the morning.",options:["A) drink","B) drinks","C) drinking"],answer:"A) drink",difficulty:"easy"},
+  {sentence:"She _____ to the gym every day.",options:["A) go","B) goes","C) going"],answer:"B) goes",difficulty:"easy"},
+  {sentence:"Yesterday we _____ a delicious pizza.",options:["A) eat","B) ate","C) eating"],answer:"B) ate",difficulty:"easy"},
+  {sentence:"This is _____ biggest city in Brazil.",options:["A) a","B) the","C) an"],answer:"B) the",difficulty:"easy"},
+  {sentence:"They _____ watching Netflix now.",options:["A) is","B) are","C) am"],answer:"B) are",difficulty:"easy"},
+  {sentence:"I _____ born in 1995.",options:["A) was","B) were","C) am"],answer:"A) was",difficulty:"easy"},
+  {sentence:"Can you _____ me the salt, please?",options:["A) pass","B) passes","C) passing"],answer:"A) pass",difficulty:"easy"},
+  {sentence:"My brother _____ English very well.",options:["A) speak","B) speaks","C) speaking"],answer:"B) speaks",difficulty:"easy"},
+  {sentence:"We _____ to travel next year.",options:["A) want","B) wants","C) wanting"],answer:"A) want",difficulty:"easy"},
+  {sentence:"He _____ TV when I called him.",options:["A) watch","B) watched","C) was watching"],answer:"C) was watching",difficulty:"medium"},
+  {sentence:"I have _____ finished my homework.",options:["A) already","B) yet","C) still"],answer:"A) already",difficulty:"medium"},
+  {sentence:"She is _____ than her sister.",options:["A) tall","B) taller","C) tallest"],answer:"B) taller",difficulty:"medium"},
+  {sentence:"We _____ never been to Canada.",options:["A) have","B) has","C) are"],answer:"A) have",difficulty:"medium"},
+  {sentence:"Do you mind _____ the window?",options:["A) open","B) opening","C) to open"],answer:"B) opening",difficulty:"medium"},
+  {sentence:"I need _____ buy some milk.",options:["A) to","B) for","C) at"],answer:"A) to",difficulty:"easy"},
+  {sentence:"She doesn't like _____ up early.",options:["A) get","B) getting","C) gets"],answer:"B) getting",difficulty:"medium"},
+  {sentence:"How long _____ you lived here?",options:["A) do","B) have","C) did"],answer:"B) have",difficulty:"hard"},
+  {sentence:"I was tired, _____ I went to bed.",options:["A) but","B) so","C) because"],answer:"B) so",difficulty:"medium"},
+  {sentence:"This book is _____ interesting than that one.",options:["A) more","B) most","C) much"],answer:"A) more",difficulty:"medium"},
+  {sentence:"_____ you ever tried sushi?",options:["A) Do","B) Have","C) Did"],answer:"B) Have",difficulty:"medium"},
+  {sentence:"I prefer tea _____ coffee.",options:["A) than","B) to","C) over"],answer:"B) to",difficulty:"hard"},
+  {sentence:"She told me she _____ busy.",options:["A) is","B) was","C) were"],answer:"B) was",difficulty:"hard"},
+  {sentence:"We _____ go out if it rains.",options:["A) won't","B) don't","C) aren't"],answer:"A) won't",difficulty:"medium"},
+  {sentence:"He works _____ a bank.",options:["A) in","B) on","C) at"],answer:"C) at",difficulty:"medium"},
+  {sentence:"I'm not used _____ up early.",options:["A) to get","B) to getting","C) get"],answer:"B) to getting",difficulty:"hard"},
+  {sentence:"How _____ does this T-shirt cost?",options:["A) many","B) much","C) long"],answer:"B) much",difficulty:"easy"},
+  {sentence:"She _____ her phone at home.",options:["A) leave","B) left","C) leaves"],answer:"B) left",difficulty:"medium"},
+  {sentence:"I have been waiting _____ an hour.",options:["A) since","B) for","C) during"],answer:"B) for",difficulty:"hard"},
+  {sentence:"She is the _____ student in the class.",options:["A) good","B) better","C) best"],answer:"C) best",difficulty:"medium"},
+  {sentence:"I _____ play soccer when I was a kid.",options:["A) use to","B) used to","C) using to"],answer:"B) used to",difficulty:"hard"},
+];
+
+const translationChallenges=[
+  {text:"Good morning",type:"en-pt",answer:"Bom dia",negative:"It is not a good morning → Não é um bom dia",difficulty:"easy"},
+  {text:"I like coffee",type:"en-pt",answer:"Eu gosto de café",negative:"I don't like coffee → Eu não gosto de café",difficulty:"easy"},
+  {text:"She works here",type:"en-pt",answer:"Ela trabalha aqui",negative:"She doesn't work here → Ela não trabalha aqui",difficulty:"medium"},
+  {text:"They are happy",type:"en-pt",answer:"Eles estão felizes",negative:"They are not happy → Eles não estão felizes",difficulty:"medium"},
+  {text:"I speak English",type:"en-pt",answer:"Eu falo inglês",negative:"I don't speak English → Eu não falo inglês",difficulty:"easy"},
+  {text:"He went to school",type:"en-pt",answer:"Ele foi para a escola",negative:"He didn't go to school → Ele não foi para a escola",difficulty:"medium"},
+  {text:"We are studying",type:"en-pt",answer:"Nós estamos estudando",negative:"We are not studying → Nós não estamos estudando",difficulty:"medium"},
+  {text:"The cat is on the table",type:"en-pt",answer:"O gato está sobre a mesa",negative:"The cat is not on the table → O gato não está sobre a mesa",difficulty:"hard"},
+  {text:"I have a car",type:"en-pt",answer:"Eu tenho um carro",negative:"I don't have a car → Eu não tenho um carro",difficulty:"easy"},
+  {text:"She can swim",type:"en-pt",answer:"Ela sabe nadar",negative:"She can't swim → Ela não sabe nadar",difficulty:"medium"},
+  {text:"Good afternoon",type:"en-pt",answer:"Boa tarde",negative:"It is not afternoon → Não é de tarde",difficulty:"easy"},
+  {text:"Good night",type:"en-pt",answer:"Boa noite",negative:"It is not night → Não é de noite",difficulty:"easy"},
+  {text:"I don't understand",type:"en-pt",answer:"Eu não entendo",negative:"I do understand → Eu entendo sim",difficulty:"medium"},
+  {text:"Can you help me?",type:"en-pt",answer:"Você pode me ajudar?",negative:"Can you not help me? → Você não pode me ajudar?",difficulty:"medium"},
+  {text:"I am tired",type:"en-pt",answer:"Estou cansado/a",negative:"I am not tired → Não estou cansado/a",difficulty:"easy"},
+  {text:"Eu amo você",type:"pt-en",answer:"I love you",negative:"I don't love you → Eu não amo você",difficulty:"easy"},
+  {text:"Eu tenho fome",type:"pt-en",answer:"I'm hungry",negative:"I'm not hungry → Não estou com fome",difficulty:"easy"},
+  {text:"Eu estou cansado",type:"pt-en",answer:"I'm tired",negative:"I'm not tired → Não estou cansado",difficulty:"easy"},
+  {text:"Onde você mora?",type:"pt-en",answer:"Where do you live?",negative:"Do you not live here? → Você não mora aqui?",difficulty:"hard"},
+  {text:"Eu não sei",type:"pt-en",answer:"I don't know",negative:"I do know → Eu sei",difficulty:"easy"},
+  {text:"Boa sorte",type:"pt-en",answer:"Good luck",negative:"Bad luck → Má sorte",difficulty:"easy"},
+  {text:"Feliz aniversário",type:"pt-en",answer:"Happy birthday",negative:"It's not my birthday → Não é meu aniversário",difficulty:"medium"},
+  {text:"Ele está dormindo",type:"pt-en",answer:"He is sleeping",negative:"He is not sleeping → Ele não está dormindo",difficulty:"medium"},
+  {text:"Nós fomos ao mercado",type:"pt-en",answer:"We went to the market",negative:"We didn't go to the market → Não fomos ao mercado",difficulty:"hard"},
+  {text:"Você gosta de música?",type:"pt-en",answer:"Do you like music?",negative:"Don't you like music? → Você não gosta de música?",difficulty:"hard"},
+];
+
+const oddOneChallenges=[
+  {items:["Apple","Banana","Carrot","Orange"],odd:"Carrot",reason:"Not a fruit — it's a vegetable",difficulty:"easy"},
+  {items:["Dog","Cat","Eagle","Fish"],odd:"Eagle",reason:"It's a bird, not a mammal or fish",difficulty:"easy"},
+  {items:["Run","Jump","Eat","Chair"],odd:"Chair",reason:"It's a noun, not a verb",difficulty:"easy"},
+  {items:["Happy","Sad","Angry","Quickly"],odd:"Quickly",reason:"It's an adverb, not an adjective",difficulty:"medium"},
+  {items:["Bus","Train","Car","Bicycle"],odd:"Bicycle",reason:"It doesn't have an engine / motor",difficulty:"easy"},
+  {items:["Doctor","Teacher","Engineer","Hospital"],odd:"Hospital",reason:"It's a place, not a profession",difficulty:"easy"},
+  {items:["Red","Blue","Green","Circle"],odd:"Circle",reason:"It's a shape, not a color",difficulty:"easy"},
+  {items:["Guitar","Piano","Drums","Pencil"],odd:"Pencil",reason:"It's not a musical instrument",difficulty:"easy"},
+  {items:["Paris","London","Tokyo","Mountain"],odd:"Mountain",reason:"It's not a city — it's a landform",difficulty:"medium"},
+  {items:["Swim","Walk","Dance","Beautiful"],odd:"Beautiful",reason:"It's an adjective, not a verb",difficulty:"medium"},
+  {items:["Milk","Water","Juice","Bread"],odd:"Bread",reason:"It's solid, not a drink",difficulty:"easy"},
+  {items:["January","March","Friday","July"],odd:"Friday",reason:"It's a day of the week, not a month",difficulty:"medium"},
+  {items:["Lion","Tiger","Bear","Tuna"],odd:"Tuna",reason:"It's a fish, not a land animal",difficulty:"medium"},
+  {items:["Shirt","Pants","Jacket","Umbrella"],odd:"Umbrella",reason:"You hold it, you don't wear it",difficulty:"easy"},
+  {items:["Soccer","Tennis","Chess","Basketball"],odd:"Chess",reason:"It's a board game, not a physical sport",difficulty:"medium"},
+  {items:["Always","Never","Sometimes","Beautiful"],odd:"Beautiful",reason:"It's an adjective, not a frequency adverb",difficulty:"hard"},
+  {items:["Kitchen","Bedroom","Bathroom","Sofa"],odd:"Sofa",reason:"It's furniture, not a room",difficulty:"easy"},
+  {items:["English","Spanish","French","Europe"],odd:"Europe",reason:"It's a continent, not a language",difficulty:"medium"},
+  {items:["Phone","Laptop","Camera","Banana"],odd:"Banana",reason:"It's food, not an electronic device",difficulty:"easy"},
+  {items:["Morning","Afternoon","Evening","Wednesday"],odd:"Wednesday",reason:"It's a day of the week, not a time of day",difficulty:"medium"},
+];
+
+const rhymeChallenges=[
+  {word:"CAT",rhymes:["bat","hat","mat","rat","sat","fat"],extra:"Use 'cat' in an English sentence!",difficulty:"easy"},
+  {word:"TREE",rhymes:["bee","free","see","me","key","tea"],extra:"Use 'tree' in an English sentence!",difficulty:"easy"},
+  {word:"NIGHT",rhymes:["light","right","fight","sight","white","might"],extra:"Use 'night' in an English sentence!",difficulty:"medium"},
+  {word:"LOVE",rhymes:["above","dove","glove","shove","of"],extra:"Use 'love' in an English sentence!",difficulty:"easy"},
+  {word:"BOOK",rhymes:["cook","look","hook","took","shook"],extra:"Use 'book' in an English sentence!",difficulty:"easy"},
+  {word:"RAIN",rhymes:["pain","train","brain","plain","main","gain"],extra:"Use 'rain' in an English sentence!",difficulty:"medium"},
+  {word:"BLUE",rhymes:["true","new","few","you","shoe","clue"],extra:"Use 'blue' in an English sentence!",difficulty:"easy"},
+  {word:"PLAY",rhymes:["day","say","way","stay","pay","may"],extra:"Use 'play' in an English sentence!",difficulty:"easy"},
+  {word:"COLD",rhymes:["bold","old","told","gold","hold","sold"],extra:"Use 'cold' in an English sentence!",difficulty:"medium"},
+  {word:"FRIEND",rhymes:["end","bend","send","tend","spend","blend"],extra:"Use 'friend' in an English sentence!",difficulty:"medium"},
+  {word:"SCHOOL",rhymes:["cool","pool","tool","rule","fool","stool"],extra:"Use 'school' in an English sentence!",difficulty:"medium"},
+  {word:"HEART",rhymes:["art","start","part","cart","smart"],extra:"Use 'heart' in an English sentence!",difficulty:"hard"},
+  {word:"DREAM",rhymes:["team","cream","stream","gleam","seem","beam"],extra:"Use 'dream' in an English sentence!",difficulty:"hard"},
+  {word:"LIGHT",rhymes:["night","right","fight","sight","bright","write"],extra:"Use 'light' in an English sentence!",difficulty:"medium"},
+  {word:"HAPPY",rhymes:["snappy","clappy","nappy","scrappy"],extra:"Use 'happy' in an English sentence!",difficulty:"hard"},
+];
+
+const describeChallenges=[
+  {word:"Elephant",ptAnswer:"Elefante",sentence:"Create a sentence in English with 'elephant'!",difficulty:"easy"},
+  {word:"Umbrella",ptAnswer:"Guarda-chuva",sentence:"Create a sentence in English with 'umbrella'!",difficulty:"easy"},
+  {word:"Library",ptAnswer:"Biblioteca",sentence:"Create a sentence in English with 'library'!",difficulty:"medium"},
+  {word:"Refrigerator",ptAnswer:"Geladeira",sentence:"Create a sentence in English with 'refrigerator'!",difficulty:"medium"},
+  {word:"Vacation",ptAnswer:"Férias",sentence:"Create a sentence in English with 'vacation'!",difficulty:"easy"},
+  {word:"Jealous",ptAnswer:"Ciumento / Com inveja",sentence:"Create a sentence in English with 'jealous'!",difficulty:"medium"},
+  {word:"Exhausted",ptAnswer:"Exausto",sentence:"Create a sentence in English with 'exhausted'!",difficulty:"medium"},
+  {word:"Delicious",ptAnswer:"Delicioso",sentence:"Create a sentence in English with 'delicious'!",difficulty:"easy"},
+  {word:"Neighbor",ptAnswer:"Vizinho",sentence:"Create a sentence in English with 'neighbor'!",difficulty:"medium"},
+  {word:"Midnight",ptAnswer:"Meia-noite",sentence:"Create a sentence in English with 'midnight'!",difficulty:"medium"},
+  {word:"Adventure",ptAnswer:"Aventura",sentence:"Create a sentence in English with 'adventure'!",difficulty:"easy"},
+  {word:"Grateful",ptAnswer:"Grato / Agradecido",sentence:"Create a sentence in English with 'grateful'!",difficulty:"hard"},
+  {word:"Sunrise",ptAnswer:"Nascer do sol / Amanhecer",sentence:"Create a sentence in English with 'sunrise'!",difficulty:"medium"},
+  {word:"Curious",ptAnswer:"Curioso",sentence:"Create a sentence in English with 'curious'!",difficulty:"medium"},
+  {word:"Stubborn",ptAnswer:"Teimoso",sentence:"Create a sentence in English with 'stubborn'!",difficulty:"hard"},
+  {word:"Earthquake",ptAnswer:"Terremoto",sentence:"Create a sentence in English with 'earthquake'!",difficulty:"hard"},
+  {word:"Silence",ptAnswer:"Silêncio",sentence:"Create a sentence in English with 'silence'!",difficulty:"medium"},
+  {word:"Emergency",ptAnswer:"Emergência",sentence:"Create a sentence in English with 'emergency'!",difficulty:"hard"},
+  {word:"Confident",ptAnswer:"Confiante",sentence:"Create a sentence in English with 'confident'!",difficulty:"medium"},
+  {word:"Appointment",ptAnswer:"Consulta / Compromisso",sentence:"Create a sentence in English with 'appointment'!",difficulty:"hard"},
+  {word:"Homesick",ptAnswer:"Com saudade de casa",sentence:"Create a sentence in English with 'homesick'!",difficulty:"hard"},
+  {word:"Champion",ptAnswer:"Campeão",sentence:"Create a sentence in English with 'champion'!",difficulty:"medium"},
+  {word:"Volunteer",ptAnswer:"Voluntário",sentence:"Create a sentence in English with 'volunteer'!",difficulty:"hard"},
+  {word:"Incredible",ptAnswer:"Incrível",sentence:"Create a sentence in English with 'incredible'!",difficulty:"medium"},
+];
+
+// ═══════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════
+window.onload=function(){
+  applyRoundDifficulty("medium");updateScoreButtonLabels();resetTimer();
+  updateScoreboardUI();updateModeButtons();
+  updatePlayerListEmpty(1);updatePlayerListEmpty(2);
+  clearChallengeArea();updateNewChallengeButton();
+  addToLog("Ready! Easy +4/40s · Medium +5/50s · Hard +6/60s (with help: −1).");
+  addToLog("All modes have Bonus (+3 pts). Get 3 right in a row → Double or Nothing! 🎲");
+};
+
+// ── PONTE TEMPORÁRIA (removida na Task 9) ──
+// Expõe em window as funções chamadas por handlers inline no index.html.
+Object.assign(window, {
+  openSettingsModal, closeSettingsModal, randomMode, setMode, setTeamNames,
+  addPlayer, resetScores, resetUsedChallenges,
+  acceptDouble, declineDouble,
+  startTimer, pauseTimer, resetTimer,
+  revealAnswer, revealBonus, markCorrect, markBonusCorrect, markWrong,
+  newChallenge,
+  setSoundEnabled: (v) => { soundEnabled = v; },
+  setConfettiEnabled: (v) => { confettiEnabled = v; },
+});
