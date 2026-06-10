@@ -4,19 +4,45 @@
 
 **English Tuesday** was built for a study group of Portuguese speakers learning English. Every Tuesday the group gets together, splits into two teams, and a host (teacher/facilitator) runs quick spoken challenges on a big screen. It keeps practice **fast, social, and low-pressure** — the focus is on *speaking out loud* and having fun, not on grammar drills.
 
-It's a single self-contained HTML file. No installation, no accounts, no internet required — just open it and play.
+It's a Vite + ES modules app. No accounts, no internet required to play — just run the dev server (or a static build) and open it in a browser.
 
 ## ▶️ Play / Run it
 
-**Option 1 — Open locally**
-Download or clone the repo and open `index.html` in any modern browser (double-click works).
+**Local development**
 
-**Option 2 — Host it for free on GitHub Pages**
-1. Push this repo to GitHub.
-2. Go to **Settings → Pages**, set the source to your `main` branch (root folder).
-3. Your game goes live at `https://<your-username>.github.io/<repo-name>/` — share the link with the group.
+```bash
+npm install
+npm run dev
+```
 
-> 💡 No build step, no dependencies. The whole app is one file.
+This starts a local dev server (Vite) — open the printed URL in any modern browser.
+
+> Note: opening `index.html` directly via `file://` no longer works, since the app loads `<script type="module">`. Use `npm run dev` or a build (below).
+
+**Production build**
+
+```bash
+npm run build      # outputs static files to dist/
+npm run preview    # serve the dist/ build locally
+```
+
+The contents of `dist/` are a static site and can be hosted anywhere (e.g. GitHub Pages, Netlify, any static file server).
+
+## 🗂️ Project structure
+
+```
+index.html       # HTML shell
+styles/          # CSS (base, layout, components)
+src/
+  main.js        # bootstrap / event wiring
+  core/          # pure game logic (scoring, turns, difficulty, double-or-nothing, no-repeat pools)
+  modes/         # one file per game mode (registry + render logic)
+  data/          # challenge pools, one file per mode
+  ui/            # DOM rendering (scoreboard, timer, log, settings, etc.)
+tests/           # Vitest unit tests for core/ logic
+```
+
+See [`CLAUDE.md`](CLAUDE.md) for the full architecture map.
 
 ## 🎮 How it works
 
@@ -50,7 +76,6 @@ Pick a specific mode, or let the app choose **Random** each round.
 
 Click the gear icon (top-right) to:
 - Rename the teams and add/remove players on each side
-- Set the round timer duration
 - Toggle sound effects and confetti
 - Reshuffle the challenge deck
 
@@ -58,7 +83,7 @@ Click the gear icon (top-right) to:
 
 This is open source — contributions from the study group (and anyone else!) are welcome. The easiest and most valuable way to help is **adding more challenges**.
 
-All challenges live as plain arrays at the bottom of `index.html` (`name3Challenges`, `emojiPuzzles`, `sentenceChallenges`, etc.). To add one, copy an existing entry in the relevant array and edit the text — match the same fields. For example:
+All challenges live as plain arrays in `src/data/` — one file per mode (`name3.js`, `emoji.js`, `sentence.js`, etc.). To add one, copy an existing entry in the relevant array and edit the text — match the same fields. For example:
 
 ```js
 // Name 3 Things
@@ -95,4 +120,4 @@ Released under the MIT License — free to use, share, and adapt for your own st
 
 ### 🇧🇷 Sobre o projeto (resumo em português)
 
-**English Tuesday** é um jogo de código aberto criado por um grupo de estudo de inglês para tornar a prática do idioma mais divertida. Dois times (Azul e Vermelho) competem em desafios rápidos de fala, com placar, cronômetro e 7 modos de jogo diferentes. É um único arquivo HTML — basta abrir no navegador, sem instalação. Contribuições são bem-vindas, principalmente adicionando novos desafios (veja a seção *Contributing* acima).
+**English Tuesday** é um jogo de código aberto criado por um grupo de estudo de inglês para tornar a prática do idioma mais divertida. Dois times (Azul e Vermelho) competem em desafios rápidos de fala, com placar, cronômetro e 7 modos de jogo diferentes. É um app Vite + ES modules — rode `npm install && npm run dev` para jogar localmente, ou `npm run build` para gerar uma build estática. Contribuições são bem-vindas, principalmente adicionando novos desafios (veja a seção *Contributing* acima).
