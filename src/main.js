@@ -6,21 +6,20 @@ import { oddOneChallenges } from "./data/oddOne.js";
 import { rhymeChallenges } from "./data/rhyme.js";
 import { describeChallenges } from "./data/describe.js";
 import { pickFromPool, resetUsedPools } from "./core/pool.js";
+import { gameState } from "./core/state.js";
+import { addScore, BONUS_POINTS } from "./core/scoring.js";
+import { getDifficultyMeta, applyDifficulty } from "./core/difficulty.js";
 
 // ═══════════════════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════════════════
-let score1=0, score2=0;
 let team1name="Blue Team", team2name="Red Team";
 let activeTeam=1, turnTeam=1;
 let currentMode=0, isRandom=true;
-let timerDuration=50;
 let soundEnabled=true, confettiEnabled=true;
 let roundLocked=false;
 let playerTurnIndex={1:0,2:0};
 let currentAnsweringPlayer="";
-let currentDifficulty="medium";
-let roundPointsFull=5, roundPointsHelp=4;
 
 // ── Double-or-Nothing ──
 // doubleActive  = true when the next challenge is a double round
@@ -32,15 +31,9 @@ let doubleTeam=0;
 let doubleWaiting=false;
 
 // ── Bonus sub-challenge ──
-const BONUS_POINTS=3;
 let bonusRevealed=false;
 let bonusAnswer="";
 
-const DIFFICULTY_META={
-  easy:  {points:4,seconds:40,label:"Easy",   badgeClass:"difficulty-badge--easy"},
-  medium:{points:5,seconds:50,label:"Medium", badgeClass:"difficulty-badge--medium"},
-  hard:  {points:6,seconds:60,label:"Hard",   badgeClass:"difficulty-badge--hard"}
-};
 const TIMER_RING_R=42;
 const TIMER_RING_LEN=2*Math.PI*TIMER_RING_R;
 let timeLeft=60, timerInterval=null;
@@ -103,23 +96,21 @@ function resetUsedChallenges(){resetUsedPools();addToLog("Challenge deck reshuff
 // ═══════════════════════════════════════════════════════
 //  TIMER
 // ═══════════════════════════════════════════════════════
-function updateTimerStartLabel(){document.getElementById("timerStartBtn").textContent="▶ Start "+timerDuration+"s";}
+function updateTimerStartLabel(){document.getElementById("timerStartBtn").textContent="▶ Start "+gameState.timerDuration+"s";}
 function applyRoundDifficulty(d){
-  const meta=DIFFICULTY_META[d]||DIFFICULTY_META.medium;
-  currentDifficulty=d;timerDuration=meta.seconds;
-  roundPointsFull=meta.points;roundPointsHelp=meta.points-1;
+  applyDifficulty(d);
   updateScoreButtonLabels();updateTimerStartLabel();
-  timeLeft=timerDuration;document.getElementById("timer").textContent=timerDuration;
+  timeLeft=gameState.timerDuration;document.getElementById("timer").textContent=gameState.timerDuration;
   updateTimerRing();
 }
 function difficultyBadgeHtml(d){
-  const meta=DIFFICULTY_META[d]||DIFFICULTY_META.medium;
+  const meta=getDifficultyMeta(d);
   return'<span class="difficulty-badge '+meta.badgeClass+'">'+meta.label+' · +'+meta.points+' · '+meta.seconds+'s</span>';
 }
 function setModeTitleWithDifficulty(title,d){document.getElementById("modeTitle").innerHTML=title+difficultyBadgeHtml(d);}
 function updateScoreButtonLabels(){
-  document.querySelector(".btn-correct").textContent="Correct (+"+roundPointsFull+")";
-  document.querySelector(".btn-correct-help").textContent="Correct with help (+"+roundPointsHelp+")";
+  document.querySelector(".btn-correct").textContent="Correct (+"+gameState.roundPointsFull+")";
+  document.querySelector(".btn-correct-help").textContent="Correct with help (+"+gameState.roundPointsHelp+")";
   const bb=document.getElementById("bonusCorrectBtn");
   if(bb)bb.textContent="✨ Bonus correct (+"+BONUS_POINTS+")";
 }
@@ -151,12 +142,12 @@ function assignAnsweringPlayer(t){
   currentAnsweringPlayer=names[idx];
   playerTurnIndex[t]=(idx+1)%names.length;
   pEl.textContent="▶ "+currentAnsweringPlayer+" answers";
-  hEl.textContent="Correct = +"+roundPointsFull+" · With help = +"+roundPointsHelp;
+  hEl.textContent="Correct = +"+gameState.roundPointsFull+" · With help = +"+gameState.roundPointsHelp;
 }
 function clearAnsweringPlayerDisplay(){currentAnsweringPlayer="";document.getElementById("pickedPlayer").textContent="";document.getElementById("pickedPlayerHint").textContent="";}
 function updateTimerRing(){
-  const elapsed=timerDuration-timeLeft;
-  const progress=Math.min(1,Math.max(0,elapsed/timerDuration));
+  const elapsed=gameState.timerDuration-timeLeft;
+  const progress=Math.min(1,Math.max(0,elapsed/gameState.timerDuration));
   const ring=document.getElementById("timerRingProgress");
   ring.style.strokeDasharray=TIMER_RING_LEN;
   ring.style.strokeDashoffset=TIMER_RING_LEN*(1-progress);
@@ -164,7 +155,7 @@ function updateTimerRing(){
 }
 function startTimer(){
   if(timerInterval)clearInterval(timerInterval);
-  timeLeft=timerDuration;document.getElementById("timer").textContent=timerDuration;updateTimerRing();
+  timeLeft=gameState.timerDuration;document.getElementById("timer").textContent=gameState.timerDuration;updateTimerRing();
   timerInterval=setInterval(()=>{
     timeLeft--;document.getElementById("timer").textContent=timeLeft;updateTimerRing();
     if(timeLeft>0&&timeLeft<=5)playSound("tick");
@@ -172,7 +163,7 @@ function startTimer(){
   },1000);
 }
 function pauseTimer(){if(timerInterval){clearInterval(timerInterval);timerInterval=null;}}
-function resetTimer(){pauseTimer();timeLeft=timerDuration;document.getElementById("timer").textContent=timerDuration;updateTimerRing();}
+function resetTimer(){pauseTimer();timeLeft=gameState.timerDuration;document.getElementById("timer").textContent=gameState.timerDuration;updateTimerRing();}
 
 // ═══════════════════════════════════════════════════════
 //  SCOREBOARD / TEAMS
@@ -194,8 +185,8 @@ function updateScoreboardUI(){
   document.getElementById("scoreTeam1Name").textContent=team1name;
   document.getElementById("scoreTeam2Name").textContent=team2name;
   updateScoreRosters();
-  document.getElementById("scorePanel1").classList.toggle("leading",score1>score2);
-  document.getElementById("scorePanel2").classList.toggle("leading",score2>score1);
+  document.getElementById("scorePanel1").classList.toggle("leading",gameState.score1>gameState.score2);
+  document.getElementById("scorePanel2").classList.toggle("leading",gameState.score2>gameState.score1);
 }
 function updateModeButtons(){
   document.querySelectorAll(".mode-btn").forEach((btn,i)=>btn.classList.toggle("active",!isRandom&&currentMode===i));
@@ -263,16 +254,15 @@ document.addEventListener("keydown",e=>{
 //  SCORING
 // ═══════════════════════════════════════════════════════
 function addPoint(team,amount){
-  const delta=amount===undefined?1:amount;
-  if(team===1)score1=Math.max(0,score1+delta);else score2=Math.max(0,score2+delta);
-  document.getElementById("score1").textContent=score1;
-  document.getElementById("score2").textContent=score2;
+  addScore(team,amount);
+  document.getElementById("score1").textContent=gameState.score1;
+  document.getElementById("score2").textContent=gameState.score2;
   const panel=document.getElementById(team===1?"scorePanel1":"scorePanel2");
   panel.classList.remove("pulse");void panel.offsetWidth;panel.classList.add("pulse");
   updateScoreboardUI();
 }
 function resetScores(){
-  score1=score2=0;playerTurnIndex={1:0,2:0};consecutiveCorrect={1:0,2:0};
+  gameState.score1 = 0; gameState.score2 = 0;playerTurnIndex={1:0,2:0};consecutiveCorrect={1:0,2:0};
   doubleActive=false;doubleTeam=0;doubleWaiting=false;
   document.getElementById("score1").textContent=0;
   document.getElementById("score2").textContent=0;
@@ -309,7 +299,7 @@ function checkDoubleOrNothing(team){
 
 function showDoubleBanner(team){
   const name=team===1?team1name:team2name;
-  const pts=roundPointsFull; // approximate next round value
+  const pts=gameState.roundPointsFull; // approximate next round value
   document.getElementById("doubleBannerMsg").innerHTML=
     "🔥 <strong>"+name+"</strong> got 3 in a row!<br><br>"+
     "On the <strong>next question</strong>:<br>"+
@@ -544,22 +534,22 @@ function markCorrect(kind){
   if(roundLocked)return;
   kind=kind||"full";
   const name=turnTeam===1?team1name:team2name;
-  const diffLabel=(DIFFICULTY_META[currentDifficulty]||DIFFICULTY_META.medium).label;
-  let points=roundPointsFull;
-  let logMsg="✅ Correct — "+name+" (+"+roundPointsFull+", "+diffLabel+")";
+  const diffLabel=getDifficultyMeta(gameState.currentDifficulty).label;
+  let points=gameState.roundPointsFull;
+  let logMsg="✅ Correct — "+name+" (+"+gameState.roundPointsFull+", "+diffLabel+")";
   if(kind==="help"){
-    points=roundPointsHelp;
+    points=gameState.roundPointsHelp;
     logMsg=currentAnsweringPlayer
-      ?"✅ Correct with help — "+name+" (+"+roundPointsHelp+"; was "+currentAnsweringPlayer+")"
-      :"✅ Correct with help — "+name+" (+"+roundPointsHelp+", "+diffLabel+")";
+      ?"✅ Correct with help — "+name+" (+"+gameState.roundPointsHelp+"; was "+currentAnsweringPlayer+")"
+      :"✅ Correct with help — "+name+" (+"+gameState.roundPointsHelp+", "+diffLabel+")";
   }else if(currentAnsweringPlayer){
-    logMsg="✅ Correct — "+currentAnsweringPlayer+" ("+name+", +"+roundPointsFull+")";
+    logMsg="✅ Correct — "+currentAnsweringPlayer+" ("+name+", +"+gameState.roundPointsFull+")";
   }
 
   // 1. Add normal points
   addPoint(turnTeam,points);
   playSound("correct");
-  if(points>=roundPointsHelp)launchConfetti();
+  if(points>=gameState.roundPointsHelp)launchConfetti();
   addToLog(logMsg);
 
   // 2. Resolve double (adds the same points again if correct)
@@ -587,7 +577,7 @@ function markWrong(){
   if(currentAnswer){const label=(currentMode===0)?"examples":"answer";msg+=" ("+label+": "+currentAnswer+")";}
 
   // Resolve double as loss BEFORE resetting
-  if(doubleActive&&turnTeam===doubleTeam)resolveDouble(false,roundPointsFull);
+  if(doubleActive&&turnTeam===doubleTeam)resolveDouble(false,gameState.roundPointsFull);
 
   consecutiveCorrect[turnTeam]=0;
   playSound("wrong");
