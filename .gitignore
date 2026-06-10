@@ -1,0 +1,11 @@
+# Ruflo / local tooling artifacts (not part of the game)
+ruvector.db
+
+# Windows download markers
+*:Zone.Identifier
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
