@@ -1,16 +1,11 @@
-import { name3Challenges } from "./data/name3.js";
-import { emojiPuzzles } from "./data/emoji.js";
-import { sentenceChallenges } from "./data/sentence.js";
-import { translationChallenges } from "./data/translation.js";
-import { oddOneChallenges } from "./data/oddOne.js";
-import { rhymeChallenges } from "./data/rhyme.js";
-import { describeChallenges } from "./data/describe.js";
 import { pickFromPool, resetUsedPools } from "./core/pool.js";
 import { gameState } from "./core/state.js";
 import { addScore, BONUS_POINTS } from "./core/scoring.js";
 import { getDifficultyMeta, applyDifficulty } from "./core/difficulty.js";
 import { advanceTeamTurn, nextAnsweringPlayer } from "./core/turns.js";
 import { trackCorrect, resetStreak, acceptDoubleBet, declineDoubleBet, settleDouble } from "./core/double.js";
+import { modes } from "./modes/registry.js";
+import { renderChallenge } from "./ui/challenge.js";
 
 // ═══════════════════════════════════════════════════════
 //  STATE
@@ -345,143 +340,30 @@ function clearChallengeArea(){
 }
 
 // ═══════════════════════════════════════════════════════
-//  HELPER: show bonus UI
-// ═══════════════════════════════════════════════════════
-function setupBonus(subHtml, answer){
-  gameState.bonusAnswer=answer;
-  const sub=document.getElementById("subChallengeBox");
-  sub.innerHTML=subHtml;sub.style.display="block";
-  document.getElementById("revealBonusBtn").style.display="inline-block";
-}
-
-// ═══════════════════════════════════════════════════════
 //  NEW CHALLENGE
 // ═══════════════════════════════════════════════════════
 function newChallenge(){
   const panel=document.getElementById("challengePanel");
   panel.classList.remove("challenge-panel--idle","challenge-bonus");
-  // If double is active, show double indicator
-  if(gameState.doubleActive){panel.classList.add("double-round");}
-  else{panel.classList.remove("double-round");}
-
+  if(gameState.doubleActive)panel.classList.add("double-round");
+  else panel.classList.remove("double-round");
   setAwaitingScore(false);setRoundLocked(false);
-  document.getElementById("challengeText").className="challenge-text";
-  document.getElementById("revealBtn").style.display="none";
-  document.getElementById("revealBonusBtn").style.display="none";
-  document.getElementById("bonusCorrectBtn").style.display="none";
-  document.getElementById("optionsArea").innerHTML="";
-  document.getElementById("emojiArea").innerHTML="";
-  document.getElementById("subChallengeBox").style.display="none";
-  document.getElementById("subChallengeBox").innerHTML="";
-  gameState.currentAnswer="";gameState.bonusAnswer="";gameState.bonusRevealed=false;
 
-  const titles=["Name 3 Things","Emoji + Sentence","Complete the Sentence","Translation + Negative","Odd One Out","Rhyme Time","Describe It!"];
-  let challengeItem,titleText;
-  if(gameState.isRandom){gameState.currentMode=Math.floor(Math.random()*7);titleText="Random Challenge";}
-  else{titleText=titles[gameState.currentMode];}
+  if(gameState.isRandom)gameState.currentMode=Math.floor(Math.random()*modes.length);
+  const mode=modes[gameState.currentMode];
+  const item=pickFromPool(mode.pool,mode.key);
+  const spec=mode.render(item);
 
-  // ── Mode 0: Name 3 Things ──
-  if(gameState.currentMode===0){
-    challengeItem=pickFromPool(name3Challenges,"name3");
-    document.getElementById("challengeText").innerHTML="<strong>"+getN3Prompt(challengeItem)+"</strong><br><small>In English only!</small>";
-    gameState.currentAnswer=challengeItem.examples||"Three valid examples in English.";
-    document.getElementById("revealBtn").style.display="inline-block";
-    // Bonus: use one of those words in a sentence
-    const word=(challengeItem.examples||"").split(",")[0].trim();
-    if(word) setupBonus(
-      "<strong>✍️ Bonus (+"+BONUS_POINTS+" pts):</strong> Use <strong>"+word+"</strong> in an English sentence!",
-      "Any correct English sentence using the word \""+word+"\""
-    );
-  }
-  // ── Mode 1: Emoji + Sentence ──
-  else if(gameState.currentMode===1){
-    challengeItem=pickFromPool(emojiPuzzles,"emoji");
-    document.getElementById("challengeText").innerHTML="What is this in English?";
-    document.getElementById("emojiArea").innerHTML="<span class='emoji'>"+challengeItem.emoji+"</span>";
-    gameState.currentAnswer=challengeItem.answer;
-    document.getElementById("revealBtn").style.display="inline-block";
-    setupBonus(
-      "<strong>✍️ Bonus (+"+BONUS_POINTS+" pts):</strong> Create an English sentence using <strong>"+challengeItem.answer+"</strong>!",
-      "Any correct English sentence using \""+challengeItem.answer+"\""
-    );
-  }
-  // ── Mode 2: Complete Sentence ──
-  else if(gameState.currentMode===2){
-    challengeItem=pickFromPool(sentenceChallenges,"sentence");
-    document.getElementById("challengeText").innerHTML="<strong>"+challengeItem.sentence+"</strong>";
-    gameState.currentAnswer=challengeItem.answer;
-    const area=document.getElementById("optionsArea");
-    area.removeAttribute("data-answered");
-    challengeItem.options.forEach(opt=>{
-      const btn=document.createElement("button");btn.type="button";btn.className="option-btn";
-      btn.textContent=opt;btn.dataset.option=opt;
-      btn.onclick=()=>checkAnswer(opt);area.appendChild(btn);
-    });
-    // Bonus: write the full correct sentence
-    setupBonus(
-      "<strong>✍️ Bonus (+"+BONUS_POINTS+" pts):</strong> Now say the full sentence in English!",
-      "The full correct sentence with: "+challengeItem.answer
-    );
-  }
-  // ── Mode 3: Translation + Negative ──
-  else if(gameState.currentMode===3){
-    challengeItem=pickFromPool(translationChallenges,"translation");
-    const dir=challengeItem.type==="en-pt"?"Translate to Portuguese:":"Translate to English:";
-    document.getElementById("challengeText").innerHTML="<strong>"+dir+"</strong><br><br><em>"+challengeItem.text+"</em>";
-    gameState.currentAnswer=challengeItem.answer;
-    document.getElementById("revealBtn").style.display="inline-block";
-    if(challengeItem.negative){
-      setupBonus(
-        "<strong>➕ Bonus (+"+BONUS_POINTS+" pts):</strong> Say the <strong>negative form</strong> of this sentence in English!",
-        challengeItem.negative
-      );
-    }
-  }
-  // ── Mode 4: Odd One Out ──
-  else if(gameState.currentMode===4){
-    challengeItem=pickFromPool(oddOneChallenges,"oddone");
-    const shuffled=[...challengeItem.items].sort(()=>Math.random()-.5);
-    document.getElementById("challengeText").innerHTML="<strong>Which one doesn't belong? (Odd one out)</strong>";
-    const area=document.getElementById("optionsArea");
-    area.removeAttribute("data-answered");
-    shuffled.forEach(opt=>{
-      const btn=document.createElement("button");btn.type="button";btn.className="option-btn";
-      btn.textContent=opt;btn.dataset.option=opt;
-      btn.onclick=()=>checkAnswer(opt);area.appendChild(btn);
-    });
-    gameState.currentAnswer=challengeItem.odd;
-    setupBonus(
-      "<strong>🗣️ Bonus (+"+BONUS_POINTS+" pts):</strong> Explain in English <em>why</em> it doesn't belong to the group!",
-      challengeItem.reason
-    );
-  }
-  // ── Mode 5: Rhyme Time ──
-  else if(gameState.currentMode===5){
-    challengeItem=pickFromPool(rhymeChallenges,"rhyme");
-    document.getElementById("challengeText").innerHTML="<strong>Name 3 words that rhyme with:</strong><br><span style='font-size:2em;font-weight:800;color:var(--accent-yellow)'>"+challengeItem.word+"</span>";
-    gameState.currentAnswer="Exemplos: "+challengeItem.rhymes.slice(0,5).join(", ");
-    document.getElementById("revealBtn").style.display="inline-block";
-    panel.classList.add("challenge-bonus");
-    setupBonus(
-      "<strong>✍️ Bonus (+"+BONUS_POINTS+" pts):</strong> Use the word <strong>"+challengeItem.word+"</strong> in an English sentence!",
-      "Any correct English sentence using \""+challengeItem.word+"\""
-    );
-  }
-  // ── Mode 6: Describe It! ──
-  else if(gameState.currentMode===6){
-    challengeItem=pickFromPool(describeChallenges,"describe");
-    document.getElementById("challengeText").innerHTML="<strong>Describe this word in English without saying it:</strong><br><span style='font-size:1.8em;font-weight:800;color:var(--accent-purple)'>"+challengeItem.word+"</span>";
-    gameState.currentAnswer=challengeItem.word+(challengeItem.ptAnswer?" / "+challengeItem.ptAnswer:"");
-    document.getElementById("revealBtn").style.display="inline-block";
-    panel.classList.add("challenge-bonus");
-    setupBonus(
-      "<strong>✍️ Bonus (+"+BONUS_POINTS+" pts):</strong> "+challengeItem.sentence,
-      "Any correct English sentence using \""+challengeItem.word+"\""
-    );
-  }
+  gameState.currentAnswer=spec.answer||"";
+  gameState.currentAnswerLabel=mode.answerLabel||"answer";
+  gameState.bonusAnswer=spec.bonus?spec.bonus.answer:"";
+  gameState.bonusRevealed=false;
 
-  applyRoundDifficulty(challengeItem.difficulty);
-  setModeTitleWithDifficulty(titleText,challengeItem.difficulty);
+  renderChallenge(spec,{onOptionSelected:checkAnswer});
+  if(spec.panelClass)panel.classList.add(spec.panelClass);
+
+  applyRoundDifficulty(item.difficulty);
+  setModeTitleWithDifficulty(gameState.isRandom?"Random Challenge":mode.title,item.difficulty);
   gameState.turnTeam=gameState.activeTeam;
   assignAnsweringPlayer(gameState.turnTeam);
   updateTeamTurnDisplay();
@@ -489,7 +371,7 @@ function newChallenge(){
   const playerNote=gameState.currentAnsweringPlayer?" ("+gameState.currentAnsweringPlayer+" answers)":"";
   const teamName=gameState.activeTeam===1?gameState.team1name:gameState.team2name;
   const doubleNote=gameState.doubleActive?" 🎲 DOUBLE ROUND!":"";
-  addToLog(teamName+" — "+titles[gameState.currentMode]+playerNote+doubleNote);
+  addToLog(teamName+" — "+mode.title+playerNote+doubleNote);
   advanceTeamTurn();
   updateNewChallengeButton();
 }
@@ -541,7 +423,7 @@ function markWrong(){
   if(gameState.roundLocked)return;
   const name=gameState.turnTeam===1?gameState.team1name:gameState.team2name;
   let msg="❌ Wrong — "+name;
-  if(gameState.currentAnswer){const label=(gameState.currentMode===0)?"examples":"answer";msg+=" ("+label+": "+gameState.currentAnswer+")";}
+  if(gameState.currentAnswer){const label=gameState.currentAnswerLabel;msg+=" ("+label+": "+gameState.currentAnswer+")";}
 
   // Resolve double as loss BEFORE resetting
   if(gameState.doubleActive&&gameState.turnTeam===gameState.doubleTeam)resolveDouble(false,gameState.roundPointsFull);
@@ -586,7 +468,7 @@ function checkAnswer(selected){
 function revealAnswer(){
   if(gameState.roundLocked)return;
   if(gameState.currentAnswer){
-    const label=(gameState.currentMode===0)?"Examples":"Answer";
+    const label=gameState.currentAnswerLabel.charAt(0).toUpperCase()+gameState.currentAnswerLabel.slice(1);
     document.getElementById("challengeText").innerHTML+="<br><br><strong class='answer-reveal' style='font-size:1.2em;'>"+label+": "+gameState.currentAnswer+"</strong>";
     document.getElementById("revealBtn").style.display="none";
     pauseTimer();setAwaitingScore(true);
@@ -622,11 +504,6 @@ function addToLog(text){
   const small=document.createElement("small");small.textContent="["+time+"] "+text;
   entry.appendChild(small);log.appendChild(entry);log.scrollTop=log.scrollHeight;
 }
-
-// ═══════════════════════════════════════════════════════
-//  CHALLENGE DATA
-// ═══════════════════════════════════════════════════════
-function getN3Prompt(item){return(item&&item.text)?item.text:"";}
 
 // ═══════════════════════════════════════════════════════
 //  INIT
