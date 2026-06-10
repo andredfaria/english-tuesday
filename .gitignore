@@ -9,3 +9,7 @@ ruvector.db
 Thumbs.db
 .vscode/
 .idea/
+
+# Node / build
+node_modules/
+dist/
