@@ -5,6 +5,7 @@ import { translationChallenges } from "./data/translation.js";
 import { oddOneChallenges } from "./data/oddOne.js";
 import { rhymeChallenges } from "./data/rhyme.js";
 import { describeChallenges } from "./data/describe.js";
+import { pickFromPool, resetUsedPools } from "./core/pool.js";
 
 // ═══════════════════════════════════════════════════════
 //  STATE
@@ -45,7 +46,6 @@ const TIMER_RING_LEN=2*Math.PI*TIMER_RING_R;
 let timeLeft=60, timerInterval=null;
 let currentAnswer="";
 let audioCtx=null;
-const usedPools={name3:[],emoji:[],sentence:[],translation:[],oddone:[],rhyme:[],describe:[]};
 
 // ═══════════════════════════════════════════════════════
 //  AUDIO
@@ -98,14 +98,7 @@ function launchConfetti(){
 // ═══════════════════════════════════════════════════════
 //  POOL PICKER
 // ═══════════════════════════════════════════════════════
-function pickFromPool(pool,key){
-  if(usedPools[key].length>=pool.length)usedPools[key]=[];
-  let idx;
-  do{idx=Math.floor(Math.random()*pool.length);}while(usedPools[key].includes(idx));
-  usedPools[key].push(idx);
-  return pool[idx];
-}
-function resetUsedChallenges(){Object.keys(usedPools).forEach(k=>usedPools[k]=[]);addToLog("Challenge deck reshuffled.");}
+function resetUsedChallenges(){resetUsedPools();addToLog("Challenge deck reshuffled.");}
 
 // ═══════════════════════════════════════════════════════
 //  TIMER
