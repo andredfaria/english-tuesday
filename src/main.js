@@ -1,67 +1,31 @@
 import { pickFromPool, resetUsedPools } from "./core/pool.js";
 import { gameState } from "./core/state.js";
-import { addScore, BONUS_POINTS } from "./core/scoring.js";
+import { BONUS_POINTS } from "./core/scoring.js";
 import { getDifficultyMeta, applyDifficulty } from "./core/difficulty.js";
 import { advanceTeamTurn, nextAnsweringPlayer } from "./core/turns.js";
 import { trackCorrect, resetStreak, acceptDoubleBet, declineDoubleBet, settleDouble } from "./core/double.js";
 import { modes } from "./modes/registry.js";
-import { renderChallenge } from "./ui/challenge.js";
-
-// ═══════════════════════════════════════════════════════
-//  STATE
-// ═══════════════════════════════════════════════════════
-const TIMER_RING_R=42;
-const TIMER_RING_LEN=2*Math.PI*TIMER_RING_R;
-let timeLeft=60, timerInterval=null;
-let audioCtx=null;
-
-// ═══════════════════════════════════════════════════════
-//  AUDIO
-// ═══════════════════════════════════════════════════════
-function getAudioCtx(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();return audioCtx}
-function playBeep(freq,dur,type,vol){
-  if(!gameState.soundEnabled)return;
-  try{
-    const ctx=getAudioCtx();
-    if(ctx.state==="suspended")ctx.resume();
-    const osc=ctx.createOscillator(),gain=ctx.createGain();
-    osc.type=type||"sine";osc.frequency.value=freq;
-    gain.gain.setValueAtTime(vol||.15,ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+dur);
-    osc.connect(gain);gain.connect(ctx.destination);
-    osc.start();osc.stop(ctx.currentTime+dur);
-  }catch(e){}
-}
-function playSound(kind){
-  if(kind==="tick")    playBeep(880,.07,"square",.1);
-  else if(kind==="timeup") playBeep(200,.4,"sawtooth",.18);
-  else if(kind==="correct"){playBeep(523,.1,"sine",.14);setTimeout(()=>playBeep(784,.14,"sine",.14),90);}
-  else if(kind==="wrong")  playBeep(160,.22,"square",.14);
-  else if(kind==="double"){
-    playBeep(440,.08,"square",.15);setTimeout(()=>playBeep(554,.08,"square",.15),90);
-    setTimeout(()=>playBeep(659,.12,"square",.18),180);setTimeout(()=>playBeep(880,.22,"square",.2),280);
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-//  CONFETTI
-// ═══════════════════════════════════════════════════════
-function launchConfetti(){
-  if(!gameState.confettiEnabled)return;
-  const canvas=document.getElementById("confettiCanvas");
-  const ctx=canvas.getContext("2d");
-  canvas.width=window.innerWidth;canvas.height=window.innerHeight;
-  const colors=["#60a5fa","#ef4444","#fbbf24","#22c55e","#f3f4f6","#a78bfa"];
-  const p=[];
-  for(let i=0;i<130;i++)p.push({x:Math.random()*canvas.width,y:-Math.random()*canvas.height*.5,vx:(Math.random()-.5)*9,vy:Math.random()*4+3,color:colors[Math.floor(Math.random()*colors.length)],w:Math.random()*10+5,h:Math.random()*6+3,rot:Math.random()*360,vr:(Math.random()-.5)*12});
-  let f=0;
-  function frame(){
-    ctx.clearRect(0,0,canvas.width,canvas.height);let any=false;
-    p.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.12;p.rot+=p.vr;if(p.y<canvas.height+30)any=true;ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot*Math.PI/180);ctx.fillStyle=p.color;ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);ctx.restore();});
-    f++;if(any&&f<200)requestAnimationFrame(frame);else ctx.clearRect(0,0,canvas.width,canvas.height);
-  }
-  frame();
-}
+import {
+  renderChallenge, updateNewChallengeButton, setAwaitingScore, setRoundLocked,
+  clearChallengeArea, highlightOptionButtons, setModeTitleWithDifficulty,
+  revealAnswer, revealBonus,
+} from "./ui/challenge.js";
+import { playSound } from "./audio.js";
+import { addToLog } from "./ui/log.js";
+import { launchConfetti } from "./ui/confetti.js";
+import {
+  syncTimerToDuration, updateTimerStartLabel, startTimer, pauseTimer, resetTimer, isTimerRunning,
+} from "./ui/timer.js";
+import {
+  addPoint, updateScoreboardUI, updateTeamTurnDisplay,
+  getTeamPlayerNames, updateScoreButtonLabels,
+} from "./ui/scoreboard.js";
+import {
+  openSettingsModal, closeSettingsModal, updateModeButtons, updatePlayerListEmpty,
+  setTeamNames, addPlayer, setMode, randomMode,
+} from "./ui/settings.js";
+import { showDoubleBanner } from "./ui/doubleBanner.js";
+import { initKeyboard } from "./ui/keyboard.js";
 
 // ═══════════════════════════════════════════════════════
 //  POOL PICKER
@@ -71,44 +35,15 @@ function resetUsedChallenges(){resetUsedPools();addToLog("Challenge deck reshuff
 // ═══════════════════════════════════════════════════════
 //  TIMER
 // ═══════════════════════════════════════════════════════
-function updateTimerStartLabel(){document.getElementById("timerStartBtn").textContent="▶ Start "+gameState.timerDuration+"s";}
 function applyRoundDifficulty(d){
   applyDifficulty(d);
   updateScoreButtonLabels();updateTimerStartLabel();
-  timeLeft=gameState.timerDuration;document.getElementById("timer").textContent=gameState.timerDuration;
-  updateTimerRing();
+  syncTimerToDuration();
 }
-function difficultyBadgeHtml(d){
-  const meta=getDifficultyMeta(d);
-  return'<span class="difficulty-badge '+meta.badgeClass+'">'+meta.label+' · +'+meta.points+' · '+meta.seconds+'s</span>';
-}
-function setModeTitleWithDifficulty(title,d){document.getElementById("modeTitle").innerHTML=title+difficultyBadgeHtml(d);}
-function updateScoreButtonLabels(){
-  document.querySelector(".btn-correct").textContent="Correct (+"+gameState.roundPointsFull+")";
-  document.querySelector(".btn-correct-help").textContent="Correct with help (+"+gameState.roundPointsHelp+")";
-  const bb=document.getElementById("bonusCorrectBtn");
-  if(bb)bb.textContent="✨ Bonus correct (+"+BONUS_POINTS+")";
-}
-function updateNewChallengeButton(){
-  const btn=document.querySelector(".btn-new-challenge");if(!btn)return;
-  const panel=document.getElementById("challengePanel");
-  const isIdle=panel&&panel.classList.contains("challenge-panel--idle");
-  // Also block if waiting for double decision
-  const canNew=(isIdle||gameState.roundLocked)&&!gameState.doubleWaiting;
-  btn.disabled=!canNew;
-  btn.title=canNew?"":"Score the current round first";
-}
-function setAwaitingScore(v){
-  document.getElementById("challengePanel").classList.toggle("challenge-awaiting-score",v);
-  document.getElementById("awaitingScoreNote").style.display=v?"block":"none";
-}
-function setRoundLocked(v){
-  gameState.roundLocked=v;
-  document.getElementById("challengePanel").classList.toggle("challenge-locked",v);
-  if(v)setAwaitingScore(false);
-  updateNewChallengeButton();
-}
-function getTeamPlayerNames(t){return Array.from(document.getElementById("team"+t+"list").querySelectorAll("li")).map(li=>li.dataset.name);}
+
+// ═══════════════════════════════════════════════════════
+//  SCOREBOARD / TEAMS
+// ═══════════════════════════════════════════════════════
 function assignAnsweringPlayer(t) {
   const name = nextAnsweringPlayer(t, getTeamPlayerNames(t));
   const pEl = document.getElementById("pickedPlayer"), hEl = document.getElementById("pickedPlayerHint");
@@ -116,122 +51,10 @@ function assignAnsweringPlayer(t) {
   pEl.textContent = "▶ " + name + " answers";
   hEl.textContent = "Correct = +" + gameState.roundPointsFull + " · With help = +" + gameState.roundPointsHelp;
 }
-function clearAnsweringPlayerDisplay(){gameState.currentAnsweringPlayer="";document.getElementById("pickedPlayer").textContent="";document.getElementById("pickedPlayerHint").textContent="";}
-function updateTimerRing(){
-  const elapsed=gameState.timerDuration-timeLeft;
-  const progress=Math.min(1,Math.max(0,elapsed/gameState.timerDuration));
-  const ring=document.getElementById("timerRingProgress");
-  ring.style.strokeDasharray=TIMER_RING_LEN;
-  ring.style.strokeDashoffset=TIMER_RING_LEN*(1-progress);
-  document.getElementById("timerRing").classList.toggle("timer-ring--urgent",timeLeft>0&&timeLeft<=10);
-}
-function startTimer(){
-  if(timerInterval)clearInterval(timerInterval);
-  timeLeft=gameState.timerDuration;document.getElementById("timer").textContent=gameState.timerDuration;updateTimerRing();
-  timerInterval=setInterval(()=>{
-    timeLeft--;document.getElementById("timer").textContent=timeLeft;updateTimerRing();
-    if(timeLeft>0&&timeLeft<=5)playSound("tick");
-    if(timeLeft<=0){clearInterval(timerInterval);timerInterval=null;playSound("timeup");addToLog("⏰ Time's up!");}
-  },1000);
-}
-function pauseTimer(){if(timerInterval){clearInterval(timerInterval);timerInterval=null;}}
-function resetTimer(){pauseTimer();timeLeft=gameState.timerDuration;document.getElementById("timer").textContent=gameState.timerDuration;updateTimerRing();}
-
-// ═══════════════════════════════════════════════════════
-//  SCOREBOARD / TEAMS
-// ═══════════════════════════════════════════════════════
-function updateTeamTurnDisplay(){
-  const name=gameState.activeTeam===1?gameState.team1name:gameState.team2name;
-  const el=document.getElementById("teamTurn");
-  el.textContent=name+" — your turn";
-  el.className="team-turn team-turn--"+(gameState.activeTeam===1?"blue":"red");
-}
-function updateScoreRosters(){
-  [1,2].forEach(t=>{
-    const names=Array.from(document.getElementById("team"+t+"list").querySelectorAll("li")).map(li=>li.dataset.name);
-    document.getElementById("scoreRoster"+t).textContent=names.join(", ");
-  });
-}
-function updateScoreboardUI(){
-  document.getElementById("scoreTeam1Name").textContent=gameState.team1name;
-  document.getElementById("scoreTeam2Name").textContent=gameState.team2name;
-  updateScoreRosters();
-  document.getElementById("scorePanel1").classList.toggle("leading",gameState.score1>gameState.score2);
-  document.getElementById("scorePanel2").classList.toggle("leading",gameState.score2>gameState.score1);
-}
-function updateModeButtons(){
-  document.querySelectorAll(".mode-btn").forEach((btn,i)=>btn.classList.toggle("active",!gameState.isRandom&&gameState.currentMode===i));
-  document.getElementById("randomModeBtn").classList.toggle("active",gameState.isRandom);
-}
-function openSettingsModal(){
-  document.getElementById("team1input").value=gameState.team1name;
-  document.getElementById("team2input").value=gameState.team2name;
-  document.getElementById("modalTeam1Label").textContent=gameState.team1name;
-  document.getElementById("modalTeam2Label").textContent=gameState.team2name;
-  updateModeButtons();
-  document.getElementById("settingsModal").classList.add("open");
-  document.getElementById("settingsModal").setAttribute("aria-hidden","false");
-  document.body.style.overflow="hidden";
-}
-function closeSettingsModal(){
-  document.getElementById("settingsModal").classList.remove("open");
-  document.getElementById("settingsModal").setAttribute("aria-hidden","true");
-  document.body.style.overflow="";
-  updateScoreRosters();
-}
-function updatePlayerListEmpty(t){document.getElementById("team"+t+"empty").style.display=document.getElementById("team"+t+"list").children.length?"none":"block";}
-function setTeamNames(){
-  gameState.team1name=document.getElementById("team1input").value.trim()||"Blue Team";
-  gameState.team2name=document.getElementById("team2input").value.trim()||"Red Team";
-  document.getElementById("modalTeam1Label").textContent=gameState.team1name;
-  document.getElementById("modalTeam2Label").textContent=gameState.team2name;
-  updateScoreboardUI();updateTeamTurnDisplay();addToLog("Team names updated.");
-}
-function addPlayer(t){
-  const input=document.getElementById("player"+t),name=input.value.trim();if(!name)return;
-  const list=document.getElementById("team"+t+"list");
-  if(Array.from(list.querySelectorAll("li")).map(li=>li.dataset.name).includes(name))return;
-  const li=document.createElement("li");li.dataset.name=name;
-  const span=document.createElement("span");span.textContent=name;
-  const rm=document.createElement("button");rm.type="button";rm.className="player-remove";rm.setAttribute("aria-label","Remove "+name);rm.textContent="×";
-  rm.onclick=()=>removePlayer(t,li);
-  li.appendChild(span);li.appendChild(rm);list.appendChild(li);
-  input.value="";input.focus();updatePlayerListEmpty(t);updateScoreRosters();
-}
-function removePlayer(t,li){li.remove();updatePlayerListEmpty(t);updateScoreRosters();}
-
-// ═══════════════════════════════════════════════════════
-//  KEYBOARD SHORTCUTS
-// ═══════════════════════════════════════════════════════
-document.addEventListener("keydown",e=>{
-  if(e.key==="Escape"&&document.getElementById("settingsModal").classList.contains("open")){closeSettingsModal();return;}
-  if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA")return;
-  if(document.getElementById("settingsModal").classList.contains("open"))return;
-  const key=e.key.toLowerCase();
-  if(key==="n"){
-    e.preventDefault();
-    const panel=document.getElementById("challengePanel");
-    const isIdle=panel&&panel.classList.contains("challenge-panel--idle");
-    if((!isIdle&&!gameState.roundLocked)||gameState.doubleWaiting)return;
-    newChallenge();
-  }
-  else if(key==="1"){e.preventDefault();markCorrect("full");}
-  else if(key==="4"||key==="3"){e.preventDefault();markCorrect("help");}
-  else if(key==="2"){e.preventDefault();markWrong();}
-  else if(key===" "||e.code==="Space"){e.preventDefault();if(!timerInterval)startTimer();}
-});
 
 // ═══════════════════════════════════════════════════════
 //  SCORING
 // ═══════════════════════════════════════════════════════
-function addPoint(team,amount){
-  addScore(team,amount);
-  document.getElementById("score1").textContent=gameState.score1;
-  document.getElementById("score2").textContent=gameState.score2;
-  const panel=document.getElementById(team===1?"scorePanel1":"scorePanel2");
-  panel.classList.remove("pulse");void panel.offsetWidth;panel.classList.add("pulse");
-  updateScoreboardUI();
-}
 function resetScores(){
   gameState.score1 = 0; gameState.score2 = 0;
   gameState.playerTurnIndex = { 1: 0, 2: 0 };
@@ -244,8 +67,6 @@ function resetScores(){
   document.getElementById("doubleBanner").style.display="none";
   addToLog("Score reset.");
 }
-function setMode(m){gameState.isRandom=false;gameState.currentMode=m;updateModeButtons();}
-function randomMode(){gameState.isRandom=true;updateModeButtons();}
 
 // ═══════════════════════════════════════════════════════
 //  DOUBLE OR NOTHING
@@ -263,22 +84,6 @@ function randomMode(){gameState.isRandom=true;updateModeButtons();}
 // ═══════════════════════════════════════════════════════
 function checkDoubleOrNothing(team){
   if(trackCorrect(team)) showDoubleBanner(team);
-}
-
-function showDoubleBanner(team){
-  const name=team===1?gameState.team1name:gameState.team2name;
-  const pts=gameState.roundPointsFull; // approximate next round value
-  document.getElementById("doubleBannerMsg").innerHTML=
-    "🔥 <strong>"+name+"</strong> got 3 in a row!<br><br>"+
-    "On the <strong>next question</strong>:<br>"+
-    "✅ Correct = <strong style='color:#4ade80'>double points</strong> (e.g.: worth "+pts+" → earns "+(pts*2)+")<br>"+
-    "❌ Wrong = <strong style='color:#f87171'>lose the round points</strong> (e.g.: −"+pts+")<br><br>"+
-    "<small style='color:var(--text-muted)'>The regular bonus (+3) still counts separately!</small>";
-  gameState.doubleWaiting=true;
-  updateNewChallengeButton();
-  const banner=document.getElementById("doubleBanner");
-  banner.style.display="flex";banner.setAttribute("aria-hidden","false");
-  playSound("double");
 }
 
 function acceptDouble(){
@@ -313,30 +118,6 @@ function resolveDouble(correct, normalPoints){
   }else{
     addToLog("💥 DOUBLE LOST! "+name+" loses −"+normalPoints+" pts this round.");
   }
-}
-
-// ═══════════════════════════════════════════════════════
-//  CLEAR CHALLENGE AREA
-// ═══════════════════════════════════════════════════════
-function clearChallengeArea(){
-  const panel=document.getElementById("challengePanel");
-  panel.classList.add("challenge-panel--idle");
-  panel.classList.remove("double-round","challenge-bonus");
-  setAwaitingScore(false);setRoundLocked(false);
-  document.getElementById("modeTitle").textContent="";
-  document.getElementById("teamTurn").textContent="";
-  document.getElementById("teamTurn").className="team-turn";
-  document.getElementById("challengeText").innerHTML="Click <strong>New Challenge</strong> to start<br><small>N = new · 1 = correct · 4/3 = with help · 2 = wrong · Space = timer</small>";
-  document.getElementById("challengeText").className="challenge-text challenge-idle-msg";
-  document.getElementById("emojiArea").innerHTML="";
-  document.getElementById("optionsArea").innerHTML="";
-  document.getElementById("subChallengeBox").style.display="none";
-  document.getElementById("subChallengeBox").innerHTML="";
-  document.getElementById("revealBtn").style.display="none";
-  document.getElementById("revealBonusBtn").style.display="none";
-  document.getElementById("bonusCorrectBtn").style.display="none";
-  gameState.currentAnswer="";gameState.bonusAnswer="";gameState.bonusRevealed=false;
-  clearAnsweringPlayerDisplay();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -440,21 +221,6 @@ function markWrong(){
   }
 }
 
-function highlightOptionButtons(selected){
-  const area=document.getElementById("optionsArea");
-  if(!area.querySelector(".option-btn"))return null;
-  if(area.dataset.answered==="1")return false;
-  area.dataset.answered="1";
-  area.querySelectorAll(".option-btn").forEach(btn=>{
-    const opt=btn.dataset.option;
-    btn.classList.remove("option-btn--correct","option-btn--wrong","option-btn--reveal-correct");
-    if(opt===selected&&opt===gameState.currentAnswer)btn.classList.add("option-btn--correct");
-    else if(opt===selected)btn.classList.add("option-btn--wrong");
-    else if(opt===gameState.currentAnswer)btn.classList.add("option-btn--reveal-correct");
-  });
-  return true;
-}
-
 function checkAnswer(selected){
   if(gameState.roundLocked)return;
   if(highlightOptionButtons(selected)){
@@ -463,25 +229,6 @@ function checkAnswer(selected){
     addToLog(teamName+" — "+player+"selected: "+selected);
     pauseTimer();setAwaitingScore(true);
   }
-}
-
-function revealAnswer(){
-  if(gameState.roundLocked)return;
-  if(gameState.currentAnswer){
-    const label=gameState.currentAnswerLabel.charAt(0).toUpperCase()+gameState.currentAnswerLabel.slice(1);
-    document.getElementById("challengeText").innerHTML+="<br><br><strong class='answer-reveal' style='font-size:1.2em;'>"+label+": "+gameState.currentAnswer+"</strong>";
-    document.getElementById("revealBtn").style.display="none";
-    pauseTimer();setAwaitingScore(true);
-  }
-}
-
-function revealBonus(){
-  if(!gameState.bonusAnswer)return;
-  const sub=document.getElementById("subChallengeBox");
-  sub.innerHTML+="<br><strong class='answer-reveal' style='font-size:1.1em;'>Bonus answer: "+gameState.bonusAnswer+"</strong>";
-  document.getElementById("revealBonusBtn").style.display="none";
-  gameState.bonusRevealed=true;
-  document.getElementById("bonusCorrectBtn").style.display="inline-block";
 }
 
 function markBonusCorrect(){
@@ -495,37 +242,55 @@ function markBonusCorrect(){
 }
 
 // ═══════════════════════════════════════════════════════
-//  LOG
+//  WIRING
 // ═══════════════════════════════════════════════════════
-function addToLog(text){
-  const log=document.getElementById("log");
-  const time=new Date().toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"});
-  const entry=document.createElement("div");entry.className="log-entry";
-  const small=document.createElement("small");small.textContent="["+time+"] "+text;
-  entry.appendChild(small);log.appendChild(entry);log.scrollTop=log.scrollHeight;
+function wireEvents() {
+  document.querySelector(".settings-fab").addEventListener("click", openSettingsModal);
+  document.querySelector(".modal-backdrop").addEventListener("click", closeSettingsModal);
+  document.querySelector(".modal-close").addEventListener("click", closeSettingsModal);
+  document.querySelector(".modal-done").addEventListener("click", closeSettingsModal);
+  document.getElementById("randomModeBtn").addEventListener("click", randomMode);
+  document.querySelectorAll(".mode-btn").forEach((btn, i) => btn.addEventListener("click", () => setMode(i)));
+  document.querySelector(".modal-save-names").addEventListener("click", setTeamNames);
+  [1, 2].forEach((t) => {
+    document.getElementById("addPlayer" + t + "Btn").addEventListener("click", () => addPlayer(t));
+    document.getElementById("player" + t).addEventListener("keydown", (e) => { if (e.key === "Enter") addPlayer(t); });
+  });
+  document.getElementById("soundEnabled").addEventListener("change", (e) => { gameState.soundEnabled = e.target.checked; });
+  document.getElementById("confettiEnabled").addEventListener("change", (e) => { gameState.confettiEnabled = e.target.checked; });
+  document.getElementById("resetScoresBtn").addEventListener("click", resetScores);
+  document.getElementById("reshuffleBtn").addEventListener("click", resetUsedChallenges);
+  document.querySelector(".btn-double-yes").addEventListener("click", acceptDouble);
+  document.querySelector(".btn-double-no").addEventListener("click", declineDouble);
+  document.getElementById("timerStartBtn").addEventListener("click", startTimer);
+  document.getElementById("timerPauseBtn").addEventListener("click", pauseTimer);
+  document.getElementById("timerResetBtn").addEventListener("click", resetTimer);
+  document.getElementById("revealBtn").addEventListener("click", revealAnswer);
+  document.getElementById("revealBonusBtn").addEventListener("click", revealBonus);
+  document.querySelector(".btn-correct").addEventListener("click", () => markCorrect("full"));
+  document.querySelector(".btn-correct-help").addEventListener("click", () => markCorrect("help"));
+  document.getElementById("bonusCorrectBtn").addEventListener("click", markBonusCorrect);
+  document.querySelector(".btn-wrong").addEventListener("click", markWrong);
+  document.querySelector(".btn-new-challenge").addEventListener("click", newChallenge);
+  initKeyboard({
+    onNewChallenge: newChallenge,
+    onCorrect: () => markCorrect("full"),
+    onCorrectHelp: () => markCorrect("help"),
+    onWrong: markWrong,
+    onStartTimer: () => { if (!isTimerRunning()) startTimer(); },
+  });
 }
 
 // ═══════════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════════
-window.onload=function(){
-  applyRoundDifficulty("medium");updateScoreButtonLabels();resetTimer();
-  updateScoreboardUI();updateModeButtons();
-  updatePlayerListEmpty(1);updatePlayerListEmpty(2);
-  clearChallengeArea();updateNewChallengeButton();
+function init() {
+  wireEvents();
+  applyRoundDifficulty("medium"); updateScoreButtonLabels(); resetTimer();
+  updateScoreboardUI(); updateModeButtons();
+  updatePlayerListEmpty(1); updatePlayerListEmpty(2);
+  clearChallengeArea(); updateNewChallengeButton();
   addToLog("Ready! Easy +4/40s · Medium +5/50s · Hard +6/60s (with help: −1).");
   addToLog("All modes have Bonus (+3 pts). Get 3 right in a row → Double or Nothing! 🎲");
-};
-
-// ── PONTE TEMPORÁRIA (removida na Task 9) ──
-// Expõe em window as funções chamadas por handlers inline no index.html.
-Object.assign(window, {
-  openSettingsModal, closeSettingsModal, randomMode, setMode, setTeamNames,
-  addPlayer, resetScores, resetUsedChallenges,
-  acceptDouble, declineDouble,
-  startTimer, pauseTimer, resetTimer,
-  revealAnswer, revealBonus, markCorrect, markBonusCorrect, markWrong,
-  newChallenge,
-  setSoundEnabled: (v) => { gameState.soundEnabled = v; },
-  setConfettiEnabled: (v) => { gameState.confettiEnabled = v; },
-});
+}
+init(); // módulo é deferred — DOM já está parseado (substitui window.onload)
