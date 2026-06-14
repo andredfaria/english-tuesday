@@ -11,9 +11,16 @@ function getSocket() {
 
 /** Host: create a new room. Resolves with the room code. */
 export function connectAsHost() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const s = getSocket();
-    s.once('room-created', (code) => resolve(code));
+    const timer = setTimeout(() => {
+      s.off('room-created');
+      reject(new Error('Timed out waiting for room creation'));
+    }, 10000);
+    s.once('room-created', (code) => {
+      clearTimeout(timer);
+      resolve(code);
+    });
     s.connect();
     s.emit('create-room');
   });
@@ -32,10 +39,22 @@ export function emitState(snapshot) {
 }
 
 /** Register a callback for when the spectator successfully joins (receives initial snapshot). */
-export function onRoomJoined(cb) { getSocket().on('room-joined', cb); }
+export function onRoomJoined(cb) {
+  const s = getSocket();
+  s.off('room-joined');
+  s.on('room-joined', cb);
+}
 
 /** Register a callback for incoming state broadcasts (spectator side). */
-export function onState(cb) { getSocket().on('state', cb); }
+export function onState(cb) {
+  const s = getSocket();
+  s.off('state');
+  s.on('state', cb);
+}
 
 /** Register a callback for server errors (e.g. room not found). */
-export function onSocketError(cb) { getSocket().on('error', cb); }
+export function onSocketError(cb) {
+  const s = getSocket();
+  s.off('error');
+  s.on('error', cb);
+}
