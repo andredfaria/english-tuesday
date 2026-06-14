@@ -15,6 +15,7 @@ import { addToLog } from "./ui/log.js";
 import { launchConfetti } from "./ui/confetti.js";
 import {
   syncTimerToDuration, updateTimerStartLabel, startTimer, pauseTimer, resetTimer, isTimerRunning,
+  setTimerTickCallback,
 } from "./ui/timer.js";
 import {
   addPoint, updateScoreboardUI, updateTeamTurnDisplay,
@@ -26,6 +27,33 @@ import {
 } from "./ui/settings.js";
 import { showDoubleBanner } from "./ui/doubleBanner.js";
 import { initKeyboard } from "./ui/keyboard.js";
+import { connectAsHost, emitState } from "./socket.js";
+
+// ═══════════════════════════════════════════════════════
+//  WEBSOCKET — STATE SNAPSHOT
+// ═══════════════════════════════════════════════════════
+function buildSnapshot() {
+  return {
+    score1: gameState.score1,
+    score2: gameState.score2,
+    team1name: gameState.team1name,
+    team2name: gameState.team2name,
+    activeTeam: gameState.activeTeam,
+    modeTitle: gameState.isRandom
+      ? "Random Challenge"
+      : (modes[gameState.currentMode]?.title ?? ""),
+    spec: gameState.currentSpec,
+    currentDifficulty: gameState.currentDifficulty,
+    roundPointsFull: gameState.roundPointsFull,
+    currentAnsweringPlayer: gameState.currentAnsweringPlayer,
+    timerRunning: isTimerRunning(),
+    timerSecondsLeft: gameState.timerSecondsLeft,
+    roundLocked: gameState.roundLocked,
+    doubleActive: gameState.doubleActive,
+    doubleTeam: gameState.doubleTeam,
+    hostOffline: false,
+  };
+}
 
 // ═══════════════════════════════════════════════════════
 //  POOL PICKER
@@ -66,6 +94,7 @@ function resetScores(){
   document.getElementById("scorePanel2").classList.remove("pulse","leading");
   document.getElementById("doubleBanner").style.display="none";
   addToLog("Score reset.");
+  emitState(buildSnapshot());
 }
 
 // ═══════════════════════════════════════════════════════
@@ -134,6 +163,7 @@ function newChallenge(){
   const mode=modes[gameState.currentMode];
   const item=pickFromPool(mode.pool,mode.key);
   const spec=mode.render(item);
+  gameState.currentSpec = spec;
 
   gameState.currentAnswer=spec.answer||"";
   gameState.currentAnswerLabel=mode.answerLabel||"answer";
@@ -155,6 +185,7 @@ function newChallenge(){
   addToLog(teamName+" — "+mode.title+playerNote+doubleNote);
   advanceTeamTurn();
   updateNewChallengeButton();
+  emitState(buildSnapshot());
 }
 
 // ═══════════════════════════════════════════════════════
@@ -188,6 +219,7 @@ function markCorrect(kind){
   }
 
   setRoundLocked(true);pauseTimer();
+  emitState(buildSnapshot());
 
   // 3. Show bonus controls if bonus exists and not yet given
   if(gameState.bonusAnswer&&!gameState.bonusRevealed){
@@ -213,6 +245,7 @@ function markWrong(){
   playSound("wrong");
   addToLog(msg);
   setRoundLocked(true);pauseTimer();
+  emitState(buildSnapshot());
 
   // Still allow bonus even if main was wrong
   if(gameState.bonusAnswer&&!gameState.bonusRevealed){
@@ -279,6 +312,7 @@ function wireEvents() {
     onWrong: markWrong,
     onStartTimer: () => { if (!isTimerRunning()) startTimer(); },
   });
+  setTimerTickCallback(() => emitState(buildSnapshot()));
 }
 
 // ═══════════════════════════════════════════════════════
@@ -292,5 +326,12 @@ function init() {
   clearChallengeArea(); updateNewChallengeButton();
   addToLog("Ready! Easy +4/40s · Medium +5/50s · Hard +6/60s (with help: −1).");
   addToLog("All modes have Bonus (+3 pts). Get 3 right in a row → Double or Nothing! 🎲");
+  connectAsHost().then((code) => {
+    document.getElementById("roomCodeDisplay").textContent = code;
+    document.getElementById("roomCodeBadge").hidden = false;
+    addToLog("Room created: " + code + " — students can join at /spectator.html");
+  }).catch(() => {
+    addToLog("⚠ Could not connect to WebSocket server. Spectator mode unavailable.");
+  });
 }
 init(); // módulo é deferred — DOM já está parseado (substitui window.onload)
