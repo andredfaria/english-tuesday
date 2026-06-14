@@ -19,6 +19,8 @@ function createInitialState() {
     doubleActive: false, doubleTeam: 0, doubleWaiting: false,
     bonusRevealed: false, bonusAnswer: "",
     currentAnswer: "", currentAnswerLabel: "answer",
+    currentSpec: null,
+    timerSecondsLeft: 0,
     usedPools: {},
   };
 }

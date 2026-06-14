@@ -8,6 +8,8 @@ import { addToLog } from "./log.js";
 const TIMER_RING_R=42;
 const TIMER_RING_LEN=2*Math.PI*TIMER_RING_R;
 let timeLeft=60, timerInterval=null;
+let _onTick = null;
+export function setTimerTickCallback(fn) { _onTick = fn; }
 
 export function updateTimerStartLabel(){document.getElementById("timerStartBtn").textContent="▶ Start "+gameState.timerDuration+"s";}
 export function updateTimerRing(){
@@ -26,12 +28,16 @@ export function syncTimerToDuration() {
 export function startTimer(){
   if(timerInterval)clearInterval(timerInterval);
   timeLeft=gameState.timerDuration;document.getElementById("timer").textContent=gameState.timerDuration;updateTimerRing();
+  gameState.timerSecondsLeft = timeLeft;
   timerInterval=setInterval(()=>{
-    timeLeft--;document.getElementById("timer").textContent=timeLeft;updateTimerRing();
+    timeLeft--;
+    gameState.timerSecondsLeft = timeLeft;
+    if(_onTick) _onTick();
+    document.getElementById("timer").textContent=timeLeft;updateTimerRing();
     if(timeLeft>0&&timeLeft<=5)playSound("tick");
     if(timeLeft<=0){clearInterval(timerInterval);timerInterval=null;playSound("timeup");addToLog("⏰ Time's up!");}
   },1000);
 }
 export function pauseTimer(){if(timerInterval){clearInterval(timerInterval);timerInterval=null;}}
-export function resetTimer(){pauseTimer();timeLeft=gameState.timerDuration;document.getElementById("timer").textContent=gameState.timerDuration;updateTimerRing();}
+export function resetTimer(){pauseTimer();timeLeft=gameState.timerDuration;gameState.timerSecondsLeft = timeLeft;document.getElementById("timer").textContent=gameState.timerDuration;updateTimerRing();}
 export function isTimerRunning(){return timerInterval !== null;}
