@@ -2,9 +2,66 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Spectator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>English Tuesday — Spectator</title>
+  <link rel="stylesheet" href="./styles/base.css">
+  <link rel="stylesheet" href="./styles/spectator.css">
 </head>
 <body>
-  <p>Coming soon</p>
+  <!-- Join screen (shown before entering a room) -->
+  <div id="joinScreen" class="join-screen">
+    <h1 class="join-title">English Tuesday</h1>
+    <p class="join-subtitle">Team Battle!</p>
+    <label class="join-label" for="codeInput">Enter room code</label>
+    <input
+      id="codeInput"
+      class="join-input"
+      type="text"
+      maxlength="4"
+      placeholder="F7KQ"
+      autocomplete="off"
+      autocapitalize="characters"
+      spellcheck="false"
+    >
+    <button id="joinBtn" class="join-btn">Join</button>
+    <p id="joinError" class="join-error" hidden></p>
+  </div>
+
+  <!-- Game screen (shown after joining) -->
+  <div id="gameScreen" class="game-screen" hidden>
+    <div id="noHostBanner" class="no-host-banner" hidden>
+      ⏳ Waiting for teacher to reconnect…
+    </div>
+
+    <!-- Scores -->
+    <div class="sp-scores">
+      <div class="sp-score sp-score--blue">
+        <div class="sp-team-name" id="spTeam1Name">Blue Team</div>
+        <div class="sp-score-value" id="spScore1">0</div>
+      </div>
+      <div class="sp-score sp-score--red">
+        <div class="sp-team-name" id="spTeam2Name">Red Team</div>
+        <div class="sp-score-value" id="spScore2">0</div>
+      </div>
+    </div>
+
+    <!-- Active team + mode -->
+    <div class="sp-meta">
+      <span id="spActiveTeam" class="sp-active-team"></span>
+      <span id="spModeTitle" class="sp-mode-title"></span>
+    </div>
+
+    <!-- Timer -->
+    <div class="sp-timer" id="spTimer">--</div>
+
+    <!-- Challenge content -->
+    <div class="sp-challenge" id="spChallenge">
+      <div id="spPrompt" class="sp-prompt"></div>
+      <div id="spOptions" class="sp-options"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./src/spectator.js"></script>
 </body>
 </html>
