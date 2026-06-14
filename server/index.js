@@ -28,6 +28,8 @@ setInterval(() => {
 }, 60 * 60 * 1000);
 
 io.on('connection', (socket) => {
+  socket.on('error', (err) => console.error(`Socket error (${socket.id}):`, err));
+
   socket.on('create-room', () => {
     let code;
     do { code = generateCode(); } while (rooms.has(code));
@@ -39,6 +41,10 @@ io.on('connection', (socket) => {
   });
 
   socket.on('join-room', (code) => {
+    if (typeof code !== 'string' || !/^[A-Z2-9]{4}$/.test(code)) {
+      socket.emit('error', 'Invalid room code format.');
+      return;
+    }
     const room = rooms.get(code);
     if (!room) { socket.emit('error', 'Room not found. Check the code and try again.'); return; }
     socket.join(code);
@@ -50,6 +56,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('state-update', (data) => {
+    if (typeof data !== 'object' || data === null) return;
     const { role, roomCode } = socket.data;
     if (role !== 'host') return;
     const room = rooms.get(roomCode);
