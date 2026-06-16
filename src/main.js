@@ -21,10 +21,8 @@ import {
   addPoint, updateScoreboardUI, updateTeamTurnDisplay,
   getTeamPlayerNames, updateScoreButtonLabels,
 } from "./ui/scoreboard.js";
-import {
-  openSettingsModal, closeSettingsModal, updateModeButtons, updatePlayerListEmpty,
-  setTeamNames, addPlayer, setMode, randomMode,
-} from "./ui/settings.js";
+import { initLobby } from "./ui/lobby.js";
+import { initInGamePanel } from "./ui/inGamePanel.js";
 import { showDoubleBanner } from "./ui/doubleBanner.js";
 import { initKeyboard } from "./ui/keyboard.js";
 import { connectAsHost, emitState } from "./socket.js";
@@ -278,19 +276,6 @@ function markBonusCorrect(){
 //  WIRING
 // ═══════════════════════════════════════════════════════
 function wireEvents() {
-  document.querySelector(".settings-fab").addEventListener("click", openSettingsModal);
-  document.querySelector(".modal-backdrop").addEventListener("click", closeSettingsModal);
-  document.querySelector(".modal-close").addEventListener("click", closeSettingsModal);
-  document.querySelector(".modal-done").addEventListener("click", closeSettingsModal);
-  document.getElementById("randomModeBtn").addEventListener("click", randomMode);
-  document.querySelectorAll(".mode-btn").forEach((btn, i) => btn.addEventListener("click", () => setMode(i)));
-  document.querySelector(".modal-save-names").addEventListener("click", setTeamNames);
-  [1, 2].forEach((t) => {
-    document.getElementById("addPlayer" + t + "Btn").addEventListener("click", () => addPlayer(t));
-    document.getElementById("player" + t).addEventListener("keydown", (e) => { if (e.key === "Enter") addPlayer(t); });
-  });
-  document.getElementById("soundEnabled").addEventListener("change", (e) => { gameState.soundEnabled = e.target.checked; });
-  document.getElementById("confettiEnabled").addEventListener("change", (e) => { gameState.confettiEnabled = e.target.checked; });
   document.getElementById("resetScoresBtn").addEventListener("click", resetScores);
   document.getElementById("reshuffleBtn").addEventListener("click", resetUsedChallenges);
   document.querySelector(".btn-double-yes").addEventListener("click", acceptDouble);
@@ -321,8 +306,7 @@ function wireEvents() {
 function init() {
   wireEvents();
   applyRoundDifficulty("medium"); updateScoreButtonLabels(); resetTimer();
-  updateScoreboardUI(); updateModeButtons();
-  updatePlayerListEmpty(1); updatePlayerListEmpty(2);
+  updateScoreboardUI();
   clearChallengeArea(); updateNewChallengeButton();
   addToLog("Ready! Easy +4/40s · Medium +5/50s · Hard +6/60s (with help: −1).");
   addToLog("All modes have Bonus (+3 pts). Get 3 right in a row → Double or Nothing! 🎲");
@@ -334,4 +318,7 @@ function init() {
     addToLog("⚠ Could not connect to WebSocket server. Spectator mode unavailable.");
   });
 }
-init(); // módulo é deferred — DOM já está parseado (substitui window.onload)
+
+// Lobby runs on load; calls init() after teacher clicks Start Game
+initLobby(() => init());
+initInGamePanel();
