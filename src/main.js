@@ -303,22 +303,24 @@ function wireEvents() {
 // ═══════════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════════
-function init() {
+function init(enableRoom = false) {
   wireEvents();
   applyRoundDifficulty("medium"); updateScoreButtonLabels(); resetTimer();
   updateScoreboardUI();
   clearChallengeArea(); updateNewChallengeButton();
   addToLog("Ready! Easy +4/40s · Medium +5/50s · Hard +6/60s (with help: −1).");
   addToLog("All modes have Bonus (+3 pts). Get 3 right in a row → Double or Nothing! 🎲");
-  connectAsHost().then((code) => {
-    document.getElementById("roomCodeDisplay").textContent = code;
-    document.getElementById("roomCodeBadge").hidden = false;
-    addToLog("Room created: " + code + " — students can join at /spectator.html");
-  }).catch(() => {
-    addToLog("⚠ Could not connect to WebSocket server. Spectator mode unavailable.");
-  });
+  if (enableRoom) {
+    connectAsHost().then((code) => {
+      document.getElementById("roomCodeDisplay").textContent = code;
+      document.getElementById("roomCodeBadge").hidden = false;
+      addToLog("Room created: " + code + " — students can join at /spectator.html");
+    }).catch(() => {
+      addToLog("⚠ Could not connect to WebSocket server. Spectator mode unavailable.");
+    });
+  }
 }
 
-// Lobby runs on load; calls init() after teacher clicks Start Game
-initLobby(() => init());
+// Lobby runs on load; calls init(enableRoom) after teacher clicks Start Game
+initLobby((enableRoom) => init(enableRoom));
 initInGamePanel();
