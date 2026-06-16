@@ -1,6 +1,15 @@
 import { io } from 'socket.io-client';
 
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
+// Servidor de produção (Render) fixado como default — funciona na Netlify sem
+// precisar da env VITE_WS_URL. Em dev local (localhost) usa o servidor local.
+// VITE_WS_URL, se definida, ainda sobrescreve ambos.
+const PROD_WS_URL = 'wss://english-tuesday-server.onrender.com';
+const isLocalhost =
+  typeof location !== 'undefined' &&
+  /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)$/.test(location.hostname);
+const WS_URL =
+  import.meta.env.VITE_WS_URL ||
+  (isLocalhost ? 'ws://localhost:3001' : PROD_WS_URL);
 
 let _socket = null;
 
