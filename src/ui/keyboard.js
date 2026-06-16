@@ -1,14 +1,13 @@
 import { gameState } from "../core/state.js";
-import { closeSettingsModal } from "./settings.js";
 
 // ═══════════════════════════════════════════════════════
 //  KEYBOARD SHORTCUTS
 // ═══════════════════════════════════════════════════════
 export function initKeyboard({ onNewChallenge, onCorrect, onCorrectHelp, onWrong, onStartTimer }) {
   document.addEventListener("keydown",e=>{
-    if(e.key==="Escape"&&document.getElementById("settingsModal").classList.contains("open")){closeSettingsModal();return;}
     if(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA")return;
-    if(document.getElementById("settingsModal").classList.contains("open"))return;
+    const panel=document.getElementById("inGamePanel");
+    if(panel&&!panel.hidden)return;
     const key=e.key.toLowerCase();
     if(key==="n"){
       e.preventDefault();
