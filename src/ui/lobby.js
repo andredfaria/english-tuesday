@@ -81,6 +81,7 @@ export function initLobby(onStart) {
     document.getElementById("lobby").hidden = true;
     document.querySelector(".app").hidden = false;
 
-    onStart();
+    const enableRoom = document.getElementById("lobbyEnableRoom").checked;
+    onStart(enableRoom);
   });
 }
