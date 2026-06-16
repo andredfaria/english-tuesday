@@ -15,7 +15,7 @@ import { addToLog } from "./ui/log.js";
 import { launchConfetti } from "./ui/confetti.js";
 import {
   syncTimerToDuration, updateTimerStartLabel, startTimer, pauseTimer, resetTimer, isTimerRunning,
-  setTimerTickCallback,
+  setTimerTickCallback, setTimerEndCallback,
 } from "./ui/timer.js";
 import {
   addPoint, updateScoreboardUI, updateTeamTurnDisplay,
@@ -25,7 +25,22 @@ import { initLobby } from "./ui/lobby.js";
 import { initInGamePanel } from "./ui/inGamePanel.js";
 import { showDoubleBanner } from "./ui/doubleBanner.js";
 import { initKeyboard } from "./ui/keyboard.js";
-import { connectAsHost, emitState } from "./socket.js";
+import {
+  connectAsHost, emitState,
+  emitChallenge, emitTimerExpired,
+  onRoundResult, onPlayerAnswered, onPlayerJoined,
+} from "./socket.js";
+
+// ═══════════════════════════════════════════════════════
+//  INTERACTIVE MODE HELPERS
+// ═══════════════════════════════════════════════════════
+/** Returns a copy of spec with answer fields removed — safe to send to students. */
+function sanitizeSpec(spec) {
+  const s = { ...spec };
+  delete s.answer;
+  if (s.bonus) s.bonus = { ...s.bonus, answer: undefined };
+  return s;
+}
 
 // ═══════════════════════════════════════════════════════
 //  WEBSOCKET — STATE SNAPSHOT
@@ -93,6 +108,70 @@ function resetScores(){
   document.getElementById("doubleBanner").style.display="none";
   addToLog("Score reset.");
   emitState(buildSnapshot());
+}
+
+/** Wire interactive-mode-specific teacher callbacks. Called from init() when playMode=interactive. */
+function initInteractiveMode() {
+  // Hide manual scoring buttons — scoring is automatic
+  [".btn-correct", ".btn-correct-help", ".btn-wrong", "#bonusCorrectBtn"].forEach((sel) => {
+    const el = document.querySelector(sel);
+    if (el) el.hidden = true;
+  });
+
+  // Show players panel
+  document.getElementById("playersPanel").hidden = false;
+
+  // Receive new player joining
+  onPlayerJoined(({ name, team }) => {
+    if (!name) return; // student's own confirmation has empty payload — skip
+    const panelEl = document.getElementById(team === 1 ? "playersPanelTeam1" : "playersPanelTeam2");
+    const badge = document.createElement("span");
+    badge.className = "player-badge";
+    badge.textContent = name;
+    badge.dataset.playerName = name;
+    panelEl.appendChild(badge);
+  });
+
+  // Real-time answer confirmation — mark player as answered
+  onPlayerAnswered(({ name }) => {
+    const badge = document.querySelector(`[data-player-name="${CSS.escape(name)}"]`);
+    if (badge && !badge.textContent.endsWith(" ✓")) badge.textContent = name + " ✓";
+  });
+
+  // Auto-score when server resolves the round
+  onRoundResult((result) => {
+    // Apply points to gameState (same as markCorrect/markWrong but automatic)
+    if (result.delta > 0) addPoint(result.activeTeam, result.delta);
+
+    // Log result
+    const teamName = result.activeTeam === 1 ? gameState.team1name : gameState.team2name;
+    if (result.correct) {
+      addToLog(`✅ Auto-score: ${teamName} +${result.delta} pts`);
+      launchConfetti();
+    } else {
+      addToLog(`❌ Auto-score: ${teamName} — no points this round`);
+    }
+
+    // Show answers panel
+    const list = document.getElementById("answersList");
+    list.innerHTML = "";
+    result.teamAnswers.forEach(({ name, answer, correct }) => {
+      const li = document.createElement("li");
+      li.textContent = `${correct ? "✅" : "❌"} ${name} — "${answer}"`;
+      list.appendChild(li);
+    });
+    document.getElementById("answersPanel").hidden = false;
+
+    // Reset player ✓ badges for next round
+    document.querySelectorAll(".player-badge").forEach((b) => {
+      b.textContent = b.dataset.playerName;
+    });
+
+    emitState(buildSnapshot());
+  });
+
+  // When timer reaches 0, tell server to resolve the round
+  setTimerEndCallback(() => emitTimerExpired());
 }
 
 // ═══════════════════════════════════════════════════════
@@ -173,8 +252,22 @@ function newChallenge(){
 
   applyRoundDifficulty(item.difficulty);
   setModeTitleWithDifficulty(gameState.isRandom?"Random Challenge":mode.title,item.difficulty);
+  if (gameState.playMode === "interactive") {
+    emitChallenge({
+      spec: sanitizeSpec(spec),
+      answer: spec.answer || "",
+      activeTeam: gameState.turnTeam,
+      team1name: gameState.team1name,
+      team2name: gameState.team2name,
+      roundPointsFull: gameState.roundPointsFull,
+    });
+    // Hide answers panel from previous round
+    document.getElementById("answersPanel").hidden = true;
+  }
   gameState.turnTeam=gameState.activeTeam;
-  assignAnsweringPlayer(gameState.turnTeam);
+  if (gameState.playMode !== "interactive") {
+    assignAnsweringPlayer(gameState.turnTeam);
+  }
   updateTeamTurnDisplay();
   startTimer();
   const playerNote=gameState.currentAnsweringPlayer?" ("+gameState.currentAnsweringPlayer+" answers)":"";
@@ -305,6 +398,7 @@ function wireEvents() {
 // ═══════════════════════════════════════════════════════
 function init(enableRoom = false) {
   wireEvents();
+  if (gameState.playMode === "interactive") initInteractiveMode();
   applyRoundDifficulty("medium"); updateScoreButtonLabels(); resetTimer();
   updateScoreboardUI();
   clearChallengeArea(); updateNewChallengeButton();
@@ -314,7 +408,7 @@ function init(enableRoom = false) {
     connectAsHost().then((code) => {
       document.getElementById("roomCodeDisplay").textContent = code;
       document.getElementById("roomCodeBadge").hidden = false;
-      addToLog("Room created: " + code + " — students can join at /spectator.html");
+      addToLog("Room created: " + code + " — students can join at /play.html");
     }).catch(() => {
       addToLog("⚠ Could not connect to WebSocket server. Spectator mode unavailable.");
     });
