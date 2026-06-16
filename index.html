@@ -18,6 +18,20 @@
     <p class="lobby-subtitle">Team Battle!</p>
 
     <section class="lobby-section">
+      <h2 class="lobby-section-title">Como vamos jogar?</h2>
+      <div class="lobby-play-mode">
+        <label>
+          <input type="radio" name="playMode" id="modeProjector" value="projector" checked>
+          <span>Projetor — professor apresenta, alunos assistem</span>
+        </label>
+        <label>
+          <input type="radio" name="playMode" id="modeInteractive" value="interactive">
+          <span>Interativo — cada aluno responde no dispositivo</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="lobby-section">
       <h2 class="lobby-section-title">Game Mode</h2>
       <div class="lobby-modes">
         <button type="button" class="random-btn active" id="randomModeBtn">Random</button>
@@ -135,6 +149,10 @@
         </div>
       </div>
     </div>
+    <div id="playersPanel" class="players-panel" hidden>
+      <div id="playersPanelTeam1" class="players-panel-team players-panel-team--blue"></div>
+      <div id="playersPanelTeam2" class="players-panel-team players-panel-team--red"></div>
+    </div>
   </header>
 
   <main class="app-body">
@@ -168,6 +186,9 @@
         <div id="emojiArea" class="emoji"></div>
         <div id="optionsArea"></div>
         <div id="subChallengeBox" class="sub-challenge-box" style="display:none;"></div>
+      </div>
+      <div id="answersPanel" class="answers-panel" hidden>
+        <ul id="answersList" class="answers-list"></ul>
       </div>
       <div id="awaitingScoreNote" class="awaiting-score-note" style="display:none; margin:2px 0 6px; font-size:clamp(.82rem,1.7vh,.92rem); color:var(--accent-yellow); font-weight:600;">
         Oral answer — Teacher scores: 1=Correct · 2=Wrong · 3/4=With help
