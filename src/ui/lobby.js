@@ -42,14 +42,32 @@ function addPlayer(t) {
   updatePlayerListEmpty(t);
 }
 
+// ── Play mode visibility ────────────────────────────────
+function applyPlayMode(mode) {
+  const isInteractive = mode === "interactive";
+  // Show/hide "add player" rows (irrelevant in interactive — players self-join)
+  document.querySelectorAll(".lobby-add-row").forEach((el) => {
+    el.hidden = isInteractive;
+  });
+  // Show/hide "enable room" checkbox (only relevant in projector mode)
+  const roomLabel = document.getElementById("lobbyEnableRoomLabel");
+  if (roomLabel) roomLabel.hidden = isInteractive;
+}
+
 // ── Public API ──────────────────────────────────────────
 
 /**
  * Wire the lobby form. Call on page load.
- * @param {() => void} onStart - called after hiding the lobby when teacher clicks Start Game
+ * @param {(enableRoom: boolean) => void} onStart - called after hiding the lobby
  */
 export function initLobby(onStart) {
-  // Mode buttons
+  // Play mode radio
+  document.querySelectorAll("input[name='playMode']").forEach((radio) => {
+    radio.addEventListener("change", () => applyPlayMode(radio.value));
+  });
+  applyPlayMode("projector"); // apply initial state
+
+  // Game mode buttons
   document.getElementById("randomModeBtn").addEventListener("click", randomMode);
   document.querySelectorAll(".mode-btn").forEach((btn, i) =>
     btn.addEventListener("click", () => setMode(i))
@@ -67,6 +85,7 @@ export function initLobby(onStart) {
 
   // Start Game
   document.getElementById("startGameBtn").addEventListener("click", () => {
+    gameState.playMode = document.querySelector("input[name='playMode']:checked").value;
     gameState.team1name = document.getElementById("team1input").value.trim() || "Blue Team";
     gameState.team2name = document.getElementById("team2input").value.trim() || "Red Team";
     gameState.soundEnabled = document.getElementById("lobbySoundEnabled").checked;
@@ -81,7 +100,9 @@ export function initLobby(onStart) {
     document.getElementById("lobby").hidden = true;
     document.querySelector(".app").hidden = false;
 
-    const enableRoom = document.getElementById("lobbyEnableRoom").checked;
+    // Interactive mode always creates a room; projector mode checks the checkbox
+    const enableRoom = gameState.playMode === "interactive"
+      || document.getElementById("lobbyEnableRoom").checked;
     onStart(enableRoom);
   });
 }

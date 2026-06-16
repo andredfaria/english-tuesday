@@ -148,3 +148,49 @@
       .app-header h1{width:100%;text-align:center}
       .header-scoreboard{width:100%}
     }
+
+    /* ── Interactive mode — teacher panels ── */
+    .players-panel {
+      display: flex;
+      gap: 1rem;
+      padding: .4rem .75rem;
+      background: var(--bg-panel);
+      border-radius: 8px;
+      font-size: .82rem;
+      flex-wrap: wrap;
+    }
+
+    .players-panel-team {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .3rem;
+      align-items: center;
+    }
+
+    .players-panel-team--blue::before { content: "🔵"; margin-right: .2rem; }
+    .players-panel-team--red::before  { content: "🔴"; margin-right: .2rem; }
+
+    .player-badge {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: .15rem .4rem;
+      font-size: .8rem;
+    }
+
+    .answers-panel {
+      padding: .5rem .75rem;
+      background: var(--bg-panel);
+      border-radius: 8px;
+      font-size: .85rem;
+      margin-top: .5rem;
+    }
+
+    .answers-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: .2rem;
+    }
