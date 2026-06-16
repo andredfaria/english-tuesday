@@ -10,6 +10,8 @@ const TIMER_RING_LEN=2*Math.PI*TIMER_RING_R;
 let timeLeft=60, timerInterval=null;
 let _onTick = null;
 export function setTimerTickCallback(fn) { _onTick = fn; }
+let _onEnd = null;
+export function setTimerEndCallback(fn) { _onEnd = fn; }
 
 export function updateTimerStartLabel(){document.getElementById("timerStartBtn").textContent="▶ Start "+gameState.timerDuration+"s";}
 export function updateTimerRing(){
@@ -35,7 +37,7 @@ export function startTimer(){
     if(_onTick) _onTick();
     document.getElementById("timer").textContent=timeLeft;updateTimerRing();
     if(timeLeft>0&&timeLeft<=5)playSound("tick");
-    if(timeLeft<=0){clearInterval(timerInterval);timerInterval=null;playSound("timeup");addToLog("⏰ Time's up!");}
+    if(timeLeft<=0){clearInterval(timerInterval);timerInterval=null;playSound("timeup");addToLog("⏰ Time's up!");if(_onEnd)_onEnd();}
   },1000);
 }
 export function pauseTimer(){if(timerInterval){clearInterval(timerInterval);timerInterval=null;}}

@@ -22,6 +22,7 @@ function createInitialState() {
     currentSpec: null,
     timerSecondsLeft: 0,
     usedPools: {},
+    playMode: "projector",
   };
 }
 
