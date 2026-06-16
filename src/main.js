@@ -15,17 +15,58 @@ import { addToLog } from "./ui/log.js";
 import { launchConfetti } from "./ui/confetti.js";
 import {
   syncTimerToDuration, updateTimerStartLabel, startTimer, pauseTimer, resetTimer, isTimerRunning,
+  setTimerTickCallback, setTimerEndCallback,
 } from "./ui/timer.js";
 import {
   addPoint, updateScoreboardUI, updateTeamTurnDisplay,
   getTeamPlayerNames, updateScoreButtonLabels,
 } from "./ui/scoreboard.js";
-import {
-  openSettingsModal, closeSettingsModal, updateModeButtons, updatePlayerListEmpty,
-  setTeamNames, addPlayer, setMode, randomMode,
-} from "./ui/settings.js";
+import { initLobby } from "./ui/lobby.js";
+import { initInGamePanel } from "./ui/inGamePanel.js";
 import { showDoubleBanner } from "./ui/doubleBanner.js";
 import { initKeyboard } from "./ui/keyboard.js";
+import {
+  connectAsHost, emitState,
+  emitChallenge, emitTimerExpired,
+  onRoundResult, onPlayerAnswered, onPlayerJoined,
+} from "./socket.js";
+
+// ═══════════════════════════════════════════════════════
+//  INTERACTIVE MODE HELPERS
+// ═══════════════════════════════════════════════════════
+/** Returns a copy of spec with answer fields removed — safe to send to students. */
+function sanitizeSpec(spec) {
+  const s = { ...spec };
+  delete s.answer;
+  if (s.bonus) s.bonus = { ...s.bonus, answer: undefined };
+  return s;
+}
+
+// ═══════════════════════════════════════════════════════
+//  WEBSOCKET — STATE SNAPSHOT
+// ═══════════════════════════════════════════════════════
+function buildSnapshot() {
+  return {
+    score1: gameState.score1,
+    score2: gameState.score2,
+    team1name: gameState.team1name,
+    team2name: gameState.team2name,
+    activeTeam: gameState.activeTeam,
+    modeTitle: gameState.isRandom
+      ? "Random Challenge"
+      : (modes[gameState.currentMode]?.title ?? ""),
+    spec: gameState.currentSpec,
+    currentDifficulty: gameState.currentDifficulty,
+    roundPointsFull: gameState.roundPointsFull,
+    currentAnsweringPlayer: gameState.currentAnsweringPlayer,
+    timerRunning: isTimerRunning(),
+    timerSecondsLeft: gameState.timerSecondsLeft,
+    roundLocked: gameState.roundLocked,
+    doubleActive: gameState.doubleActive,
+    doubleTeam: gameState.doubleTeam,
+    hostOffline: false,
+  };
+}
 
 // ═══════════════════════════════════════════════════════
 //  POOL PICKER
@@ -66,6 +107,71 @@ function resetScores(){
   document.getElementById("scorePanel2").classList.remove("pulse","leading");
   document.getElementById("doubleBanner").style.display="none";
   addToLog("Score reset.");
+  emitState(buildSnapshot());
+}
+
+/** Wire interactive-mode-specific teacher callbacks. Called from init() when playMode=interactive. */
+function initInteractiveMode() {
+  // Hide manual scoring buttons — scoring is automatic
+  [".btn-correct", ".btn-correct-help", ".btn-wrong", "#bonusCorrectBtn"].forEach((sel) => {
+    const el = document.querySelector(sel);
+    if (el) el.hidden = true;
+  });
+
+  // Show players panel
+  document.getElementById("playersPanel").hidden = false;
+
+  // Receive new player joining
+  onPlayerJoined(({ name, team }) => {
+    if (!name) return; // student's own confirmation has empty payload — skip
+    const panelEl = document.getElementById(team === 1 ? "playersPanelTeam1" : "playersPanelTeam2");
+    const badge = document.createElement("span");
+    badge.className = "player-badge";
+    badge.textContent = name;
+    badge.dataset.playerName = name;
+    panelEl.appendChild(badge);
+  });
+
+  // Real-time answer confirmation — mark player as answered
+  onPlayerAnswered(({ name }) => {
+    const badge = document.querySelector(`[data-player-name="${CSS.escape(name)}"]`);
+    if (badge && !badge.textContent.endsWith(" ✓")) badge.textContent = name + " ✓";
+  });
+
+  // Auto-score when server resolves the round
+  onRoundResult((result) => {
+    // Apply points to gameState (same as markCorrect/markWrong but automatic)
+    if (result.delta > 0) addPoint(result.activeTeam, result.delta);
+
+    // Log result
+    const teamName = result.activeTeam === 1 ? gameState.team1name : gameState.team2name;
+    if (result.correct) {
+      addToLog(`✅ Auto-score: ${teamName} +${result.delta} pts`);
+      launchConfetti();
+    } else {
+      addToLog(`❌ Auto-score: ${teamName} — no points this round`);
+    }
+
+    // Show answers panel
+    const list = document.getElementById("answersList");
+    list.innerHTML = "";
+    result.teamAnswers.forEach(({ name, answer, correct }) => {
+      const li = document.createElement("li");
+      li.textContent = `${correct ? "✅" : "❌"} ${name} — "${answer}"`;
+      list.appendChild(li);
+    });
+    document.getElementById("answersPanel").hidden = false;
+
+    // Reset player ✓ badges for next round
+    document.querySelectorAll(".player-badge").forEach((b) => {
+      b.textContent = b.dataset.playerName;
+    });
+
+    emitState(buildSnapshot());
+  });
+
+  // When timer reaches 0, tell server to resolve the round
+  setTimerEndCallback(() => emitTimerExpired());
 }
 
 // ═══════════════════════════════════════════════════════
@@ -134,6 +240,7 @@ function newChallenge(){
   const mode=modes[gameState.currentMode];
   const item=pickFromPool(mode.pool,mode.key);
   const spec=mode.render(item);
+  gameState.currentSpec = spec;
 
   gameState.currentAnswer=spec.answer||"";
   gameState.currentAnswerLabel=mode.answerLabel||"answer";
@@ -145,8 +252,22 @@ function newChallenge(){
 
   applyRoundDifficulty(item.difficulty);
   setModeTitleWithDifficulty(gameState.isRandom?"Random Challenge":mode.title,item.difficulty);
+  if (gameState.playMode === "interactive") {
+    emitChallenge({
+      spec: sanitizeSpec(spec),
+      answer: spec.answer || "",
+      activeTeam: gameState.turnTeam,
+      team1name: gameState.team1name,
+      team2name: gameState.team2name,
+      roundPointsFull: gameState.roundPointsFull,
+    });
+    // Hide answers panel from previous round
+    document.getElementById("answersPanel").hidden = true;
+  }
   gameState.turnTeam=gameState.activeTeam;
-  assignAnsweringPlayer(gameState.turnTeam);
+  if (gameState.playMode !== "interactive") {
+    assignAnsweringPlayer(gameState.turnTeam);
+  }
   updateTeamTurnDisplay();
   startTimer();
   const playerNote=gameState.currentAnsweringPlayer?" ("+gameState.currentAnsweringPlayer+" answers)":"";
@@ -155,6 +276,7 @@ function newChallenge(){
   addToLog(teamName+" — "+mode.title+playerNote+doubleNote);
   advanceTeamTurn();
   updateNewChallengeButton();
+  emitState(buildSnapshot());
 }
 
 // ═══════════════════════════════════════════════════════
@@ -188,6 +310,7 @@ function markCorrect(kind){
   }
 
   setRoundLocked(true);pauseTimer();
+  emitState(buildSnapshot());
 
   // 3. Show bonus controls if bonus exists and not yet given
   if(gameState.bonusAnswer&&!gameState.bonusRevealed){
@@ -213,6 +336,7 @@ function markWrong(){
   playSound("wrong");
   addToLog(msg);
   setRoundLocked(true);pauseTimer();
+  emitState(buildSnapshot());
 
   // Still allow bonus even if main was wrong
   if(gameState.bonusAnswer&&!gameState.bonusRevealed){
@@ -245,19 +369,6 @@ function markBonusCorrect(){
 //  WIRING
 // ═══════════════════════════════════════════════════════
 function wireEvents() {
-  document.querySelector(".settings-fab").addEventListener("click", openSettingsModal);
-  document.querySelector(".modal-backdrop").addEventListener("click", closeSettingsModal);
-  document.querySelector(".modal-close").addEventListener("click", closeSettingsModal);
-  document.querySelector(".modal-done").addEventListener("click", closeSettingsModal);
-  document.getElementById("randomModeBtn").addEventListener("click", randomMode);
-  document.querySelectorAll(".mode-btn").forEach((btn, i) => btn.addEventListener("click", () => setMode(i)));
-  document.querySelector(".modal-save-names").addEventListener("click", setTeamNames);
-  [1, 2].forEach((t) => {
-    document.getElementById("addPlayer" + t + "Btn").addEventListener("click", () => addPlayer(t));
-    document.getElementById("player" + t).addEventListener("keydown", (e) => { if (e.key === "Enter") addPlayer(t); });
-  });
-  document.getElementById("soundEnabled").addEventListener("change", (e) => { gameState.soundEnabled = e.target.checked; });
-  document.getElementById("confettiEnabled").addEventListener("change", (e) => { gameState.confettiEnabled = e.target.checked; });
   document.getElementById("resetScoresBtn").addEventListener("click", resetScores);
   document.getElementById("reshuffleBtn").addEventListener("click", resetUsedChallenges);
   document.querySelector(".btn-double-yes").addEventListener("click", acceptDouble);
@@ -279,18 +390,31 @@ function wireEvents() {
     onWrong: markWrong,
     onStartTimer: () => { if (!isTimerRunning()) startTimer(); },
   });
+  setTimerTickCallback(() => emitState(buildSnapshot()));
 }
 
 // ═══════════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════════
-function init() {
+function init(enableRoom = false) {
   wireEvents();
+  if (gameState.playMode === "interactive") initInteractiveMode();
   applyRoundDifficulty("medium"); updateScoreButtonLabels(); resetTimer();
-  updateScoreboardUI(); updateModeButtons();
-  updatePlayerListEmpty(1); updatePlayerListEmpty(2);
+  updateScoreboardUI();
   clearChallengeArea(); updateNewChallengeButton();
   addToLog("Ready! Easy +4/40s · Medium +5/50s · Hard +6/60s (with help: −1).");
   addToLog("All modes have Bonus (+3 pts). Get 3 right in a row → Double or Nothing! 🎲");
+  if (enableRoom) {
+    connectAsHost().then((code) => {
+      document.getElementById("roomCodeDisplay").textContent = code;
+      document.getElementById("roomCodeBadge").hidden = false;
+      addToLog("Room created: " + code + " — students can join at /play.html");
+    }).catch(() => {
+      addToLog("⚠ Could not connect to WebSocket server. Spectator mode unavailable.");
+    });
+  }
 }
-init(); // módulo é deferred — DOM já está parseado (substitui window.onload)
+
+// Lobby runs on load; calls init(enableRoom) after teacher clicks Start Game
+initLobby((enableRoom) => init(enableRoom));
+initInGamePanel();

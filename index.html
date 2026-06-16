@@ -8,19 +8,32 @@
   <link rel="stylesheet" href="./styles/base.css">
   <link rel="stylesheet" href="./styles/layout.css">
   <link rel="stylesheet" href="./styles/components.css">
+  <link rel="stylesheet" href="./styles/lobby.css">
 </head>
 <body>
-<button type="button" class="settings-fab" aria-label="Settings" title="Settings">&#9881;</button>
+<!-- ═══ LOBBY (shown on load, hidden after Start Game) ═══ -->
+<div id="lobby" class="lobby">
+  <div class="lobby-inner">
+    <h1 class="lobby-title">🎮 English Tuesday</h1>
+    <p class="lobby-subtitle">Team Battle!</p>
 
-<!-- Settings Modal -->
-<div id="settingsModal" class="modal" aria-hidden="true">
-  <div class="modal-backdrop"></div>
-  <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
-    <button type="button" class="modal-close" aria-label="Close">&times;</button>
-    <h2 id="settingsModalTitle">Settings</h2>
-    <section class="settings-section">
-      <h3>Game Mode</h3>
-      <div class="settings-modes">
+    <section class="lobby-section">
+      <h2 class="lobby-section-title">Como vamos jogar?</h2>
+      <div class="lobby-play-mode">
+        <label>
+          <input type="radio" name="playMode" id="modeProjector" value="projector" checked>
+          <span>Projetor — professor apresenta, alunos assistem</span>
+        </label>
+        <label>
+          <input type="radio" name="playMode" id="modeInteractive" value="interactive">
+          <span>Interativo — cada aluno responde no dispositivo</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="lobby-section">
+      <h2 class="lobby-section-title">Game Mode</h2>
+      <div class="lobby-modes">
         <button type="button" class="random-btn active" id="randomModeBtn">Random</button>
         <button type="button" class="mode-btn">Name 3 Things</button>
         <button type="button" class="mode-btn">Emoji + Sentence</button>
@@ -31,47 +44,64 @@
         <button type="button" class="mode-btn">Describe It!</button>
       </div>
     </section>
-    <section class="settings-section">
-      <h3>Teams &amp; Players</h3>
-      <div class="modal-names">
-        <label>Team 1 Name<input type="text" id="team1input" value="Blue Team"></label>
-        <label>Team 2 Name<input type="text" id="team2input" value="Red Team"></label>
-        <button type="button" class="modal-save-names">Save</button>
-      </div>
-      <div class="modal-columns">
-        <div class="modal-team modal-team--blue">
-          <h3 id="modalTeam1Label">Blue Team</h3>
-          <div class="modal-add-row">
+
+    <section class="lobby-section">
+      <h2 class="lobby-section-title">Teams</h2>
+      <div class="lobby-teams">
+        <div class="lobby-team lobby-team--blue">
+          <label class="lobby-team-label">Team 1 name
+            <input type="text" id="team1input" value="Blue Team">
+          </label>
+          <div class="lobby-add-row">
             <input type="text" id="player1" placeholder="Player name">
             <button type="button" id="addPlayer1Btn">Add</button>
           </div>
           <ul id="team1list"></ul>
-          <p class="modal-empty" id="team1empty">No players yet</p>
+          <p class="lobby-empty" id="team1empty">No players yet</p>
         </div>
-        <div class="modal-team modal-team--red">
-          <h3 id="modalTeam2Label">Red Team</h3>
-          <div class="modal-add-row">
+        <div class="lobby-team lobby-team--red">
+          <label class="lobby-team-label">Team 2 name
+            <input type="text" id="team2input" value="Red Team">
+          </label>
+          <div class="lobby-add-row">
             <input type="text" id="player2" placeholder="Player name">
             <button type="button" id="addPlayer2Btn">Add</button>
           </div>
           <ul id="team2list"></ul>
-          <p class="modal-empty" id="team2empty">No players yet</p>
+          <p class="lobby-empty" id="team2empty">No players yet</p>
         </div>
       </div>
     </section>
-    <section class="settings-section">
-      <h3>Effects</h3>
+
+    <section class="lobby-section">
+      <h2 class="lobby-section-title">Effects</h2>
       <div class="settings-row">
-        <label><input type="checkbox" id="soundEnabled" checked> Sounds</label>
-        <label><input type="checkbox" id="confettiEnabled" checked> Confetti on correct</label>
+        <label><input type="checkbox" id="lobbySoundEnabled" checked> Sounds</label>
+        <label><input type="checkbox" id="lobbyConfettiEnabled" checked> Confetti on correct</label>
+        <label id="lobbyEnableRoomLabel"><input type="checkbox" id="lobbyEnableRoom"> Criar sala para espectadores (WebSocket)</label>
       </div>
     </section>
-    <section class="settings-section">
-      <h3>Score</h3>
-      <button type="button" class="settings-reset-btn" id="resetScoresBtn">Reset scores</button>
-      <button type="button" class="settings-reset-btn" style="margin-top:8px;" id="reshuffleBtn">Reshuffle challenges</button>
-    </section>
-    <button type="button" class="modal-done">Done</button>
+
+    <button type="button" id="startGameBtn" class="lobby-start-btn">▶ Start Game</button>
+  </div>
+</div>
+
+<button type="button" class="settings-fab" aria-label="Settings" title="Settings">&#9881;</button>
+<div id="roomCodeBadge" class="room-code-badge" hidden>
+  Room: <span id="roomCodeDisplay">----</span>
+</div>
+
+<!-- ═══ IN-GAME PANEL (⚙ during game) ═══ -->
+<div id="inGamePanel" class="in-game-panel" hidden>
+  <div class="in-game-panel-inner">
+    <button type="button" id="inGamePanelClose" class="in-game-panel-close" aria-label="Close">×</button>
+    <h3 class="in-game-panel-title">Game Options</h3>
+    <div class="settings-row">
+      <label><input type="checkbox" id="igSoundEnabled" checked> Sounds</label>
+      <label><input type="checkbox" id="igConfettiEnabled" checked> Confetti</label>
+    </div>
+    <button type="button" class="settings-reset-btn" id="resetScoresBtn">Reset scores</button>
+    <button type="button" class="settings-reset-btn" id="reshuffleBtn">Reshuffle challenges</button>
   </div>
 </div>
 
@@ -87,7 +117,7 @@
   </div>
 </div>
 
-<div class="app">
+<div class="app" hidden>
   <header class="app-header">
     <h1>English Tuesday</h1>
     <div class="header-scoreboard">
@@ -118,6 +148,10 @@
           <div class="score-chip-roster" id="scoreRoster2"></div>
         </div>
       </div>
+    </div>
+    <div id="playersPanel" class="players-panel" hidden>
+      <div id="playersPanelTeam1" class="players-panel-team players-panel-team--blue"></div>
+      <div id="playersPanelTeam2" class="players-panel-team players-panel-team--red"></div>
     </div>
   </header>
 
@@ -152,6 +186,9 @@
         <div id="emojiArea" class="emoji"></div>
         <div id="optionsArea"></div>
         <div id="subChallengeBox" class="sub-challenge-box" style="display:none;"></div>
+      </div>
+      <div id="answersPanel" class="answers-panel" hidden>
+        <ul id="answersList" class="answers-list"></ul>
       </div>
       <div id="awaitingScoreNote" class="awaiting-score-note" style="display:none; margin:2px 0 6px; font-size:clamp(.82rem,1.7vh,.92rem); color:var(--accent-yellow); font-weight:600;">
         Oral answer — Teacher scores: 1=Correct · 2=Wrong · 3/4=With help

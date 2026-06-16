@@ -13,3 +13,6 @@ Thumbs.db
 # Node / build
 node_modules/
 dist/
+
+# Local env
+.env.local

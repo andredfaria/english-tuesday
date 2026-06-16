@@ -1,0 +1,177 @@
+/* ─── Spectator page — mobile-first dark layout ─── */
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  padding: 1rem;
+  background: var(--bg, #0f1117);
+  color: var(--text, #e8eaf0);
+  font-family: var(--font-sans, system-ui, sans-serif);
+}
+
+/* ── Join screen ── */
+.join-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 320px;
+}
+
+.join-title {
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.join-subtitle {
+  margin: 0;
+  opacity: 0.6;
+  font-size: 1rem;
+}
+
+.join-label {
+  font-size: 0.9rem;
+  opacity: 0.7;
+  margin-top: 1rem;
+}
+
+.join-input {
+  width: 100%;
+  padding: 0.8rem;
+  font-size: 2rem;
+  text-align: center;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  background: #1e2130;
+  border: 2px solid #3a3f55;
+  border-radius: 0.5rem;
+  color: inherit;
+  outline: none;
+}
+
+.join-input:focus { border-color: var(--team1, #4f8ef7); }
+
+.join-btn {
+  width: 100%;
+  padding: 0.9rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  background: var(--team1, #4f8ef7);
+  border: none;
+  border-radius: 0.5rem;
+  color: #fff;
+  cursor: pointer;
+}
+
+.join-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.join-error {
+  color: var(--accent-red, #e05252);
+  font-size: 0.9rem;
+  text-align: center;
+  margin: 0;
+}
+
+/* ── Game screen ── */
+.game-screen {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.no-host-banner {
+  background: #2a2010;
+  border: 1px solid #665522;
+  border-radius: 0.5rem;
+  padding: 0.6rem 1rem;
+  font-size: 0.9rem;
+  text-align: center;
+  color: #ccaa44;
+}
+
+/* Scores */
+.sp-scores {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.sp-score {
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  text-align: center;
+  background: #1e2130;
+}
+
+.sp-score--blue { border-top: 3px solid var(--team1, #4f8ef7); }
+.sp-score--red  { border-top: 3px solid var(--accent-red, #e05252); }
+
+.sp-team-name {
+  font-size: 0.8rem;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sp-score-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+/* Meta */
+.sp-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+/* Timer */
+.sp-timer {
+  font-size: 3.5rem;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: -0.02em;
+}
+
+.sp-timer.urgent { color: var(--accent-red, #e05252); }
+
+/* Challenge */
+.sp-challenge {
+  background: #1e2130;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sp-prompt {
+  font-size: 1.2rem;
+  line-height: 1.5;
+}
+
+.sp-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.spectator-option {
+  padding: 0.7rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid #3a3f55;
+  background: #252a3a;
+  color: inherit;
+  font-size: 1rem;
+  text-align: left;
+  cursor: default;
+}

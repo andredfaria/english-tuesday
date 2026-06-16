@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>English Tuesday — Join</title>
+  <link rel="stylesheet" href="./styles/base.css">
+  <link rel="stylesheet" href="./styles/play.css">
+</head>
+<body>
+  <div id="joinScreen">
+    <h1>🎮 English Tuesday</h1>
+    <p class="play-subtitle">Enter your room code to join</p>
+    <input type="text" id="codeInput" placeholder="Room code (e.g. ABCD)" maxlength="4" autocomplete="off" autocapitalize="characters">
+    <input type="text" id="nameInput" placeholder="Your name" maxlength="30" autocomplete="off">
+    <div id="teamSelect">
+      <button type="button" id="teamBlueBtn" class="team-btn team-btn--blue">🔵 Blue Team</button>
+      <button type="button" id="teamRedBtn"  class="team-btn team-btn--red">🔴 Red Team</button>
+    </div>
+    <button type="button" id="joinBtn">Join</button>
+    <p id="joinError" hidden></p>
+  </div>
+
+  <div id="gameScreen" hidden>
+    <header id="playHeader">
+      <span id="playTeamBadge" class="play-team-badge"></span>
+      <span id="playScore" class="play-score"></span>
+    </header>
+    <div id="challengeArea"></div>
+    <div id="waitingMsg" hidden>
+      <p id="waitingText" class="play-waiting-text"></p>
+    </div>
+    <div id="resultArea" hidden>
+      <p id="resultMsg" class="play-result-msg"></p>
+      <ul id="resultList" class="play-result-list"></ul>
+    </div>
+  </div>
+
+  <script type="module" src="./src/play.js"></script>
+</body>
+</html>

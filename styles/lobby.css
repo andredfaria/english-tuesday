@@ -1,0 +1,199 @@
+/* ─── Lobby / initial menu screen ─── */
+
+.lobby {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: var(--bg, #0f1117);
+  overflow-y: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 2rem 1rem 3rem;
+}
+
+.lobby-inner {
+  width: 100%;
+  max-width: 680px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.lobby-title {
+  font-size: clamp(1.8rem, 5vw, 2.8rem);
+  font-weight: 800;
+  margin: 0 0 4px;
+  text-align: center;
+}
+
+.lobby-subtitle {
+  font-size: 1rem;
+  color: var(--text-muted, #9ca3af);
+  text-align: center;
+  margin: 0 0 2rem;
+}
+
+/* ── Sections ── */
+.lobby-section {
+  margin-bottom: 1.75rem;
+}
+
+.lobby-section-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted, #9ca3af);
+  margin: 0 0 0.75rem;
+}
+
+/* ── Mode buttons ── */
+.lobby-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.lobby-modes button {
+  margin: 0;
+}
+
+/* ── Teams ── */
+.lobby-teams {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 560px) {
+  .lobby-teams { grid-template-columns: 1fr; }
+}
+
+.lobby-team {
+  background: var(--bg-deep, #080b12);
+  border-radius: 14px;
+  padding: 1rem;
+  border: 1px solid var(--border, #2a2a2a);
+}
+
+.lobby-team--blue {
+  border-color: rgba(59, 130, 246, 0.45);
+  box-shadow: inset 0 0 24px rgba(59, 130, 246, 0.08);
+}
+
+.lobby-team--red {
+  border-color: rgba(239, 68, 68, 0.35);
+  box-shadow: inset 0 0 24px rgba(239, 68, 68, 0.05);
+}
+
+.lobby-team-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--text-muted, #9ca3af);
+  margin-bottom: 0.75rem;
+}
+
+.lobby-team-label input {
+  width: 100%;
+}
+
+.lobby-add-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 0.75rem;
+}
+
+.lobby-add-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.lobby-add-row button {
+  flex-shrink: 0;
+  background: var(--accent-yellow, #fbbf24);
+  color: #1a1508;
+  border-color: var(--accent-yellow, #fbbf24);
+}
+
+.lobby-team ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.lobby-team li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 5px;
+  background: var(--surface-raised, #1e2130);
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 8px;
+  font-size: 0.9em;
+}
+
+.lobby-empty {
+  opacity: 0.55;
+  font-size: 0.85em;
+  text-align: center;
+  padding: 8px 0;
+  margin: 0;
+}
+
+/* ── Start button ── */
+.lobby-start-btn {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 16px;
+  font-size: 1.25rem;
+  font-weight: 700;
+  background: var(--accent-green, #22c55e);
+  color: #052e16;
+  border-color: var(--accent-green, #22c55e);
+  border-radius: 14px;
+  box-shadow: 0 0 32px rgba(34, 197, 94, 0.3);
+  letter-spacing: 0.02em;
+}
+
+.lobby-start-btn:hover {
+  background: #16a34a;
+  border-color: #16a34a;
+  box-shadow: 0 0 48px rgba(34, 197, 94, 0.45);
+  transform: translateY(-1px);
+}
+
+/* ── Play mode selector ── */
+.lobby-play-mode {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+.lobby-play-mode label {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .55rem .75rem;
+  border-radius: 8px;
+  border: 2px solid var(--border);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+
+.lobby-play-mode label:has(input:checked) {
+  border-color: var(--accent-green);
+  background: color-mix(in srgb, var(--accent-green) 10%, var(--bg-panel));
+}
+
+.lobby-play-mode input[type="radio"] {
+  accent-color: var(--accent-green);
+}
