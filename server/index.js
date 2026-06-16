@@ -4,9 +4,23 @@ import { Server } from 'socket.io';
 const PORT = process.env.PORT || 3001;
 const ROOM_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
-const httpServer = createServer();
+// Origens permitidas. Em produção, defina ALLOWED_ORIGINS no Railway
+// (lista separada por vírgula). Default cobre o site da Netlify + dev local.
+const ALLOWED_ORIGINS = (
+  process.env.ALLOWED_ORIGINS ||
+  'https://english-tuesday.netlify.app,http://localhost:5173'
+)
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+// Healthcheck endpoint — Railway pings "/" to confirm the server is alive.
+const httpServer = createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('english-tuesday server ok');
+});
 const io = new Server(httpServer, {
-  cors: { origin: '*' },
+  cors: { origin: ALLOWED_ORIGINS },
 });
 
 // rooms: Map<code, { hostId, lastActivity, snapshot, players, currentAnswer, activeTeam, roundPointsFull, answers, roundOpen }>
