@@ -4,15 +4,27 @@ import { Server } from 'socket.io';
 const PORT = process.env.PORT || 3001;
 const ROOM_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
-// Origens permitidas. Em produção, defina ALLOWED_ORIGINS no Railway
-// (lista separada por vírgula). Default cobre o site da Netlify + dev local.
-const ALLOWED_ORIGINS = (
-  process.env.ALLOWED_ORIGINS ||
-  'https://english-tuesday.netlify.app,http://localhost:5173'
-)
+// Origens permitidas. ALLOWED_ORIGINS (lista separada por vírgula) adiciona
+// origens exatas; além disso liberamos por regex o site de produção, os deploy
+// previews da Netlify (<hash>--english-tuesday.netlify.app) e dev local.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);
+
+const ORIGIN_REGEXES = [
+  // produção + deploy previews: english-tuesday.netlify.app e <id>--english-tuesday.netlify.app
+  /^https:\/\/([a-z0-9-]+--)?english-tuesday\.netlify\.app$/,
+  // dev local em qualquer porta
+  /^http:\/\/localhost:\d+$/,
+  /^http:\/\/127\.0\.0\.1:\d+$/,
+];
+
+function isOriginAllowed(origin) {
+  if (!origin) return true; // clientes não-browser (sem header Origin)
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  return ORIGIN_REGEXES.some((re) => re.test(origin));
+}
 
 // Healthcheck endpoint — Railway pings "/" to confirm the server is alive.
 const httpServer = createServer((req, res) => {
@@ -20,7 +32,7 @@ const httpServer = createServer((req, res) => {
   res.end('english-tuesday server ok');
 });
 const io = new Server(httpServer, {
-  cors: { origin: ALLOWED_ORIGINS },
+  cors: { origin: (origin, cb) => cb(null, isOriginAllowed(origin)) },
 });
 
 // rooms: Map<code, { hostId, lastActivity, snapshot, players, currentAnswer, activeTeam, roundPointsFull, answers, roundOpen }>
